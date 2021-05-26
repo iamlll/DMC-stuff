@@ -228,7 +228,7 @@ if __name__ == "__main__":
             simple_dmc(
                 JastrowWF(0.5), 
                 #MultiplyWF(ExponentSlaterWF(2.0), JastrowWF(0.5)),
-                Hamiltonian(U=U_STO,g=g),
+                Hamiltonian(U=2.,g=g, hw=1/l**2),
                 pos=np.random.randn(2, 3, nconfig), 
                 g=g, N=N, L=L,
                 tau=tau,
