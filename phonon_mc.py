@@ -39,7 +39,7 @@ def eph_energies(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
       pot: Coulomb energy - a constant for fixed electrons
       ph: Phonon + electron-phonon (local) energies
     """
-    #ke = - np.sum(wf.laplacian(pos), axis=0)
+    ke = -np.sum(wf.laplacian(pos), axis=0)
     pot = ham.pot_ee(pos)
     
     #find elec density matrix
@@ -52,10 +52,11 @@ def eph_energies(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
     f2p = fp - tau*1j* ham.g/kcopy * np.conj(rho) #f'' = f' - it*g/k* (rho*)
 
     #Update weights from H_ph and H_eph, and calculate local energy
-    ph = -1./tau* (np.sum(tau*1j* ham.g * fp/kcopy*rho,axis=0) + np.sum( np.conj(h_ks)*(f2p - f_ks),axis=0) ) #sum over all k-values; weights are normalized
-    return pot, ph, pot+ph, rho, f2p
+    ph = -1./tau* (np.sum( tau*1j* ham.g * fp/kcopy*rho,axis=0) + np.sum( np.conj(h_ks)*(f2p-f_ks),axis=0) ) #sum over all k-values; coherent state weight contributions are normalized
+    #ph = -0.5/tau* (np.sum( -np.conj(f_ks)*f_ks + np.conj(f2p)*f2p ,axis=0) + np.sum( 1j*tau* ham.g/kcopy * (rho*fp - np.conj(rho)* np.conj(fp)),axis=0) ) # sqrt{<f"|f"> / <f|f>} normalization factor for f" = e^{-tH} |f>
+    return ke+pot, ph, ke+pot+ph, rho, f2p
 
-def mixed_estimator(pos, rho, ham, h_ks, f_ks, kmag):
+def mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kmag):
     '''
     Calculate energy using the mixed estimator form E_0 = <psi_T| H |phi>, psi_T & phi are coherent states
     Input:
@@ -66,13 +67,14 @@ def mixed_estimator(pos, rho, ham, h_ks, f_ks, kmag):
         h_ks: coherent state amplitudes of trial wave function psi_T (len(ks), nconfigs)
         f_ks: coherent state amplitudes of our time-evolved numerical coherent state |{f_k}>
     '''
+    ke = -np.sum(wf.laplacian(pos), axis=0)
     #Find electron phonon energy
     H_eph = 1j* ham.g*np.sum( (-f_ks * rho + np.conj(h_ks) *np.conj(rho))/kmag , axis=0) #sum over all k values; f/kmag = (# ks) x nconfigs matrix
     #find H_ph
     fhmag = f_ks* np.conj(h_ks) #find f_k magnitudes
     H_ph = 1/l**2 * np.sum(fhmag,axis=0)
-    return ham.pot_ee(pos) + H_eph + H_ph
-    #return ham.pot_ee(pos)
+    #return ke + H_eph + H_ph + ham.pot_ee(pos)
+    return ke + ham.pot_ee(pos)
 
 #####################################
 
@@ -133,8 +135,8 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
         "tau": [],
     }
     nconfig = pos.shape[2]
-    #pos, acc = metropolis_sample(pos, wf, tau=0.5)
     weight = np.ones(nconfig)
+
     #Make a supercell/box
     #k = (nx, ny, nz)*2*pi/L for nx^2+ny^2+nz^2 <= n_c^2 for cutoff value n_c = N, where n_c -> inf is the continuum limit. 
     #A k-sphere cutoff is conventional as it specifies a unique KE cutoff
@@ -144,30 +146,41 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
     kcopy = np.array([[ kmag[i] for j in range(nconfig)] for i in range(len(kmag))])
     #initialize f_ks
     f_ks = init_f_k(ks, kmag, ham.g, nconfig)
+    #f_ks = np.full((len(ks),nconfig),1.)
     h_ks = f_ks #this describes our trial wave fxn coherent state amplitudes
 
-    #eref = -0.17/Ry #initialize reference energy with our best guess for the Gaussian bipolaron binding energy (units of Ry)
-    #eref = ham.pot_ee(pos) - 0.1
-    coul, ph, E_0, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
-    eref = np.mean(E_0)
+    print(-0.17/Ry) #initialize reference energy with our best guess for the Gaussian bipolaron binding energy (units of Ry)
+    eref = -0.17/Ry
+    #eloc, ph, tot, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+    #eref = np.mean(eloc)
     print(eref)
+    
 
     for istep in range(nstep):
-        # Drift+diffusion - no diffusion here since electrons are fixed in place
+        rdist = np.mean(np.sum((pos[0,:,:]-pos[1,:,:])**2,axis=0)**0.5)
+        print(rdist)
         #Update weights from H_ph and H_eph (and coulomb = const), and calculate local energy
-        coul, ph, E_0, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
-        E_mix = mixed_estimator(pos, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
+        elocold,_, _, _,_ = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+
+        # Drift+diffusion 
+        chi = np.random.randn() #random number from Gaussian distn
+        pos = pos + np.sqrt(tau)*chi
+        #impose periodic boundary conditions
+        pos = pos % L
+        
+        eloc, ph, _, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+        E_mix = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
         f_ks = f2p
         
-        # Branch 
-        weight = weight* np.exp(-tau * (E_0 - eref))
+        oldwt = weight
+        weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
         wtot = np.sum(weight)
         wavg = wtot / nconfig
-        E_gth = -1.*np.log(wavg)
+        Delta = -1./tau*np.log(wavg/np.mean(oldwt)) #need to normalize the weight ratio as <w_{n+1}>/<w_n>
         
         # Update the reference energy
-        eref = eref + E_gth #this is literally just setting eref = E_0 in a very roundabout way
-        #eref = E_0
+        eref = eref + Delta #this is literally just setting eref = E_0 in a very roundabout way
+        E_gth = eref + Delta
 
         if istep % 1 == 0:
             print(
@@ -177,21 +190,21 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
                 wavg.real,
                 "E_mix",
                 np.mean(E_mix).real,
-                "E_0", #at this particular step, per config; should converge to E_mix as tau -> 0. In this toy problem E_0 = E_loc = E_ref
-                #np.mean(eloc * weight / wavg),
-                np.mean(E_0).real,
-                "eref",
-                eref.real,
                 "E_gth", #want E_gth = 0 as tau -> inf
                 E_gth.real,
+                "sig_gth", #want E_gth = 0 as tau -> inf
+                np.std(eloc),
+                "Delta", #at this particular step, per config; should converge to E_mix as tau -> 0. In this toy problem E_0 = E_loc = E_ref
+                #np.mean(eloc * weight / wavg),
+                np.mean(Delta).real,
                 #"f_k0",
                 #f_ks[0][0],
             )
         
         df["step"].append(istep)
-        df["elocal"].append(np.mean(E_0))
+        df["elocal"].append(np.mean(eloc))
         df["weight"].append(np.mean(weight))
-        df["elocalvar"].append(np.std(E_0))
+        df["elocalvar"].append(np.std(eloc))
         df["weightvar"].append(np.std(weight))
         df["eref"].append(eref)
         df["tau"].append(tau)
@@ -241,15 +254,15 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
 if __name__ == "__main__":
     #from slaterwf import ExponentSlaterWF
     from wavefunction import MultiplyWF, JastrowWF
-    from hamiltonian import Hamiltonian
+    from ham import Hamiltonian
 
-    nconfig = 10 #default is 5000, we only need one since there's no randomness/branching going on yet
+    nconfig = 15 #default is 5000, we only need one since there's no randomness/branching going on yet
     dfs = []
     N = 10 #num of momenta
     L = 5 #sys size/length measured in a0
     g = 2/l**2 *np.sqrt(np.pi*alpha* l/L**3)
     U = 2.
-
+    np.random.seed(0)
     for tau in [0.01]: #,0.005, 0.0025]:
         dfs.append(
             simple_dmc(
@@ -259,7 +272,7 @@ if __name__ == "__main__":
                 pos=np.random.randn(2, 3, nconfig), 
                 N=N, L=L,
                 tau=tau,
-                nstep=3000, #orig: 10000
+                nstep=1000, #orig: 10000
             )
         )
     df = pd.concat(dfs)
