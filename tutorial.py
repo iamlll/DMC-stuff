@@ -64,6 +64,7 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000):
         "elocalvar": [],
         "eref": [],
         "tau": [],
+        "acc_ratio":[],
     }
     nconfig = pos.shape[2]
     pos, acc = metropolis_sample(pos, wf, tau=0.5) #what's the point of this line? Isn't it already calculating the final position after 1000 steps? Then why bother with the other nstep loop? (i.e. why not just keep pos as the input position matrix)
@@ -73,36 +74,38 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000):
 
     for istep in range(nstep):
         # Drift+diffusion
-        #driftold = tau * wf.gradient(pos)
+        driftold = tau * wf.gradient(pos)
         ke, pot, elocold = ke_pot_tot_energies(pos, wf, ham)
-        pos = pos + np.sqrt(tau) * np.random.randn(*pos.shape)
-
-        '''
+        
         posnew = pos + np.sqrt(tau) * np.random.randn(*pos.shape) + driftold
         driftnew = tau * wf.gradient(posnew)
         acc = acceptance(pos, posnew, driftold, driftnew, tau, wf)
         imove = acc > np.random.random(nconfig)
         pos[:, :, imove] = posnew[:, :, imove]
         acc_ratio = np.sum(imove) / nconfig
-        acc_ratio=1
-        '''
+        
+        #posnew = pos + np.sqrt(tau) * np.random.randn(*pos.shape)
+        #acc_ratio=1 #use if no importance sampling
 
         # Change weight
         ke, pot, eloc = ke_pot_tot_energies(pos, wf, ham)
-        oldwt = weight
+        oldwt = np.mean(weight)
         weight *= np.exp(-0.5 * tau * (eloc + elocold - 2 * eref))
 
         # Branch
         wtot = np.sum(weight)
         wavg = wtot / nconfig
-        
-        probability = np.cumsum(weight / wtot)
-        randnums = np.random.random(nconfig)
-        new_indices = np.searchsorted(probability, randnums)
-        pos = pos[:, :, new_indices]
-        
+        '''
+        if istep % 10 == 0:
+            probability = np.cumsum(weight / wtot)
+            randnums = np.random.random(nconfig)
+            new_indices = np.searchsorted(probability, randnums)
+            posnew = pos[:, :, new_indices]
+            pos = posnew.copy()
+        '''
+
         # Update the reference energy
-        Delta = -1./tau* np.log(wavg/np.mean(oldwt)) #need to normalize <w_{n+1}>/<w_n>
+        Delta = -1./tau* np.log(wavg/oldwt) #need to normalize <w_{n+1}>/<w_n>
         E_gth = eref + Delta
         eref = eref + Delta
 
@@ -119,8 +122,8 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000):
             E_gth,
             "sig_gth",
             np.std(eloc),
-            #"acceptance",
-            #acc_ratio,
+            "acceptance",
+            acc_ratio,
         )
         df["step"].append(istep)
         df["elocal"].append(np.mean(eloc))
@@ -129,6 +132,7 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000):
         df["weightvar"].append(np.std(weight))
         df["eref"].append(eref)
         df["tau"].append(tau)
+        df["acc_ratio"].append(acc_ratio)
         #This is part of branching but we accumulate before this so you can see the weights.
         weight.fill(wavg)
 
@@ -142,17 +146,18 @@ if __name__ == "__main__":
     from wavefunction import MultiplyWF, JastrowWF
     from hamiltonian import Hamiltonian
 
-    nconfig = 15 #5000
+    nconfig = 5000 #5000
+    np.random.seed(0)
     dfs = []
-    for tau in [0.01]: #,0.005, 0.0025]:
+    for tau in [0.01, 0.005, 0.0025]:
         dfs.append(
             simple_dmc(
-                JastrowWF(0.5),
-                #MultiplyWF(ExponentSlaterWF(2.0), JastrowWF(0.5)),
+                #JastrowWF(0.5),
+                MultiplyWF(ExponentSlaterWF(2.0), JastrowWF(0.5)),
                 Hamiltonian(),
                 pos=np.random.randn(2, 3, nconfig),
                 tau=tau,
-                nstep=1000, #10000
+                nstep=10000, #10000
             )
         )
     df = pd.concat(dfs)

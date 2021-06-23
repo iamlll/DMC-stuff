@@ -2,7 +2,7 @@
 import numpy as np
 import sys
 
-#sys.path.append("../../Day1/VMC/solutions")
+sys.path.append("../StochasticSchool/Day1/VMC/solutions")
 
 from metropolis import metropolis_sample
 import pandas as pd
@@ -39,8 +39,8 @@ def eph_energies(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
       pot: Coulomb energy - a constant for fixed electrons
       ph: Phonon + electron-phonon (local) energies
     """
-    ke = -np.sum(wf.laplacian(pos), axis=0)
-    pot = ham.pot_ee(pos)
+    ke = -0.5*np.sum(wf.laplacian(pos), axis=0)
+    pot = ham.pot(pos)
     
     #find elec density matrix
     dprod1 = np.matmul(ks,pos[0,:,:]) #np array for each k value; k dot r1
@@ -74,7 +74,7 @@ def mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kmag):
     fhmag = f_ks* np.conj(h_ks) #find f_k magnitudes
     H_ph = 1/l**2 * np.sum(fhmag,axis=0)
     #return ke + H_eph + H_ph + ham.pot_ee(pos)
-    return ke + ham.pot_ee(pos)
+    return ke + ham.pot(pos)
 
 #####################################
 
@@ -95,7 +95,6 @@ def acceptance(posold, posnew, driftold, driftnew, tau, wf):
         + np.sum((posnew - posold - driftold) ** 2 / (2 * tau), axis=(0, 1))
     )
     ratio = wf.value(posnew) ** 2 / wf.value(posold) ** 2
-    #print((ratio[0],gfratio[0]))
     return np.minimum(1,ratio * gfratio)
 
 def init_f_k(ks, kmag, g, nconfig):
@@ -146,81 +145,54 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
     kcopy = np.array([[ kmag[i] for j in range(nconfig)] for i in range(len(kmag))])
     #initialize f_ks
     f_ks = init_f_k(ks, kmag, ham.g, nconfig)
-    #f_ks = np.full((len(ks),nconfig),1.)
     h_ks = f_ks #this describes our trial wave fxn coherent state amplitudes
 
     print(-0.17/Ry) #initialize reference energy with our best guess for the Gaussian bipolaron binding energy (units of Ry)
-    eref = -0.17/Ry
-    #eloc, ph, tot, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
-    #eref = np.mean(eloc)
+    #eref = -0.17/Ry
+    eloc, ph, tot, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+    eref = np.mean(eloc)
     print(eref)
     
 
     for istep in range(nstep):
         rdist = np.mean(np.sum((pos[0,:,:]-pos[1,:,:])**2,axis=0)**0.5)
-        print(rdist)
-        #Update weights from H_ph and H_eph (and coulomb = const), and calculate local energy
+        
+        driftold = tau * wf.gradient(pos)
         elocold,_, _, _,_ = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
 
         # Drift+diffusion 
-        chi = np.random.randn() #random number from Gaussian distn
-        pos = pos + np.sqrt(tau)*chi
+        #with importance sampling
+        posnew = pos + np.sqrt(tau) * np.random.randn(*pos.shape) + driftold
+        driftnew = tau * wf.gradient(posnew)
+        acc = acceptance(pos, posnew, driftold, driftnew, tau, wf)
+        imove = acc > np.random.random(nconfig)
+        pos[:, :, imove] = posnew[:, :, imove]
+        acc_ratio = np.sum(imove) / nconfig
+
+        #chi = np.random.randn() #random number from Gaussian distn
+        #posnew = pos + np.sqrt(tau)*chi
         #impose periodic boundary conditions
-        pos = pos % L
+        #pos = pos % L
         
-        eloc, ph, _, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+        eloc, _, _, _, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
         E_mix = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
         f_ks = f2p
         
-        oldwt = weight
+        oldwt = np.mean(weight)
         weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
         wtot = np.sum(weight)
         wavg = wtot / nconfig
-        Delta = -1./tau*np.log(wavg/np.mean(oldwt)) #need to normalize the weight ratio as <w_{n+1}>/<w_n>
+        Delta = -1./tau*np.log(wavg/oldwt) #need to normalize the weight ratio as <w_{n+1}>/<w_n>
         
-        # Update the reference energy
-        eref = eref + Delta #this is literally just setting eref = E_0 in a very roundabout way
-        E_gth = eref + Delta
-
-        if istep % 1 == 0:
-            print(
-                "iteration",
-                istep,
-                "average weight",
-                wavg.real,
-                "E_mix",
-                np.mean(E_mix).real,
-                "E_gth", #want E_gth = 0 as tau -> inf
-                E_gth.real,
-                "sig_gth", #want E_gth = 0 as tau -> inf
-                np.std(eloc),
-                "Delta", #at this particular step, per config; should converge to E_mix as tau -> 0. In this toy problem E_0 = E_loc = E_ref
-                #np.mean(eloc * weight / wavg),
-                np.mean(Delta).real,
-                #"f_k0",
-                #f_ks[0][0],
-            )
-        
-        df["step"].append(istep)
-        df["elocal"].append(np.mean(eloc))
-        df["weight"].append(np.mean(weight))
-        df["elocalvar"].append(np.std(eloc))
-        df["weightvar"].append(np.std(weight))
-        df["eref"].append(eref)
-        df["tau"].append(tau)
+        # Branch
+        probability = np.cumsum(weight / wtot)
+        randnums = np.random.random(nconfig)
+        new_indices = np.searchsorted(probability, randnums)
+        posnew = pos[:, :, new_indices]
         
         #Branching lets us split the walkers with too-large weights and kill the walkers with too-small weights; want to keep # walkers = const
         #The growth estimator should be done between population control calls. That is, evaluate a w' and w, compute their ratio, without calling "comb". Only call "comb" to do population control once every few steps (say every 10 steps)!!
-        if istep % 50 == 0:
-            
-            #DMC tutorial comb algorithm
-            probs = np.cumsum(weight/wtot) #stack up weights from each walker to find cumulative probabilities over each step - sums to 1 (i.e. last elt = 1)
-            randnums = np.random.random(nconfig) #throw random numbers b/w 0 and 1 for each walker
-            new_idxs = np.searchsorted(probs, randnums) #find indices where the random number walkers would fit into the probs array
-            pos = pos[:,:,new_idxs] #update walkers, AKA slicing; selects only those walkers with weights between 0 and 1, kills the rest
-            weight.fill(wavg)
-            
-            '''
+        '''
             #RMP_DMC article suggestion for branching algorithm
             newwalkers = weight + np.random.uniform(high=1.,size=nconfig) #number of walkers progressing to next step at each position
             newwalkers = np.array(list(map(int,newwalkers)))
@@ -243,20 +215,51 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
             nconfig = pos.shape[-1]
             kcopy = np.array([[ kmag[i] for j in range(nconfig)] for i in range(len(kmag))])
             h_ks = init_f_k(ks, kmag, g,nconfig) 
-            '''
-        #weight.fill(wavg) #use if no branching
+        '''
+        # Update the reference energy
+        eref = eref + Delta #E_gth = eref + Delta
+        pos = posnew.copy()
+        weight.fill(wavg)
 
+        if istep % 1 == 0:
+            print(
+                "iteration",
+                istep,
+                "sep dist",
+                rdist,
+                "average weight",
+                wavg.real,
+                "E_mix",
+                np.mean(E_mix).real,
+                "E_gth", #want E_gth = 0 as tau -> inf
+                eref.real,
+                "variance", #want E_gth = 0 as tau -> inf
+                np.std(eloc),
+                "Delta", #at this particular step, per config; should converge to E_mix as tau -> 0. In this toy problem E_0 = E_loc = E_ref
+                #np.mean(eloc * weight / wavg),
+                np.mean(Delta).real,
+                #"f_k0",
+                #f_ks[0][0],
+            )
+        
+        df["step"].append(istep)
+        df["elocal"].append(np.mean(eloc))
+        df["weight"].append(np.mean(weight))
+        df["elocalvar"].append(np.std(eloc))
+        df["weightvar"].append(np.std(weight))
+        df["eref"].append(eref)
+        df["tau"].append(tau)
     return pd.DataFrame(df)
 
 
 #####################################
 
 if __name__ == "__main__":
-    #from slaterwf import ExponentSlaterWF
+    from slaterwf import ExponentSlaterWF
     from wavefunction import MultiplyWF, JastrowWF
     from ham import Hamiltonian
 
-    nconfig = 15 #default is 5000, we only need one since there's no randomness/branching going on yet
+    nconfig = 5000 #default is 5000, we only need one since there's no randomness/branching going on yet
     dfs = []
     N = 10 #num of momenta
     L = 5 #sys size/length measured in a0
@@ -266,13 +269,13 @@ if __name__ == "__main__":
     for tau in [0.01]: #,0.005, 0.0025]:
         dfs.append(
             simple_dmc(
-                JastrowWF(0.5), 
-                #MultiplyWF(ExponentSlaterWF(2.0), JastrowWF(0.5)),
+                #JastrowWF(0.5), 
+                MultiplyWF(ExponentSlaterWF(2.0), JastrowWF(0.5)),
                 Hamiltonian(g=g, hw=1/l**2),
                 pos=np.random.randn(2, 3, nconfig), 
                 N=N, L=L,
                 tau=tau,
-                nstep=1000, #orig: 10000
+                nstep=3000, #orig: 10000
             )
         )
     df = pd.concat(dfs)
