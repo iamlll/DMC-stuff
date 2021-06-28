@@ -47,8 +47,16 @@ def acceptance(posold, posnew, driftold, driftnew, tau, wf):
     ratio = wf.value(posnew) ** 2 / wf.value(posold) ** 2
     return ratio * gfratio
 
+def popcontrol(pos, weight, wavg, wtot):
+      print("popcontrol")
+      probability = np.cumsum(weight / wtot)
+      randnums = np.random.random(nconfig)
+      new_indices = np.searchsorted(probability, randnums)
+      posnew = pos[:, :, new_indices]
+      weight.fill(wavg)
+      return posnew, weight
 
-def simple_dmc(wf, ham, tau, pos, nstep=1000):
+def simple_dmc(wf, ham, tau, pos, popstep = 1, nstep=1000):
     """
   Inputs:
   
@@ -65,6 +73,7 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000):
         "eref": [],
         "tau": [],
         "acc_ratio":[],
+        "popstep":[],
     }
     nconfig = pos.shape[2]
     pos, acc = metropolis_sample(pos, wf, tau=0.5) #what's the point of this line? Isn't it already calculating the final position after 1000 steps? Then why bother with the other nstep loop? (i.e. why not just keep pos as the input position matrix)
@@ -95,18 +104,12 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000):
         # Branch
         wtot = np.sum(weight)
         wavg = wtot / nconfig
-        '''
-        if istep % 10 == 0:
-            probability = np.cumsum(weight / wtot)
-            randnums = np.random.random(nconfig)
-            new_indices = np.searchsorted(probability, randnums)
-            posnew = pos[:, :, new_indices]
-            pos = posnew.copy()
-        '''
+        
+        if istep % popstep == 0:
+            pos, weight = popcontrol(pos, weight, wavg, wtot)
 
         # Update the reference energy
         Delta = -1./tau* np.log(wavg/oldwt) #need to normalize <w_{n+1}>/<w_n>
-        E_gth = eref + Delta
         eref = eref + Delta
 
         print(
@@ -118,8 +121,6 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000):
             np.mean(eloc * weight / wavg),
             "eref",
             eref,
-            "E_gth",
-            E_gth,
             "sig_gth",
             np.std(eloc),
             "acceptance",
@@ -133,8 +134,7 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000):
         df["eref"].append(eref)
         df["tau"].append(tau)
         df["acc_ratio"].append(acc_ratio)
-        #This is part of branching but we accumulate before this so you can see the weights.
-        weight.fill(wavg)
+        df['popstep'].append(popstep)
 
     return pd.DataFrame(df)
 
@@ -145,11 +145,14 @@ if __name__ == "__main__":
     from slaterwf import ExponentSlaterWF
     from wavefunction import MultiplyWF, JastrowWF
     from hamiltonian import Hamiltonian
+    import time
 
     nconfig = 5000 #5000
     np.random.seed(0)
     dfs = []
-    for tau in [0.01, 0.005, 0.0025]:
+    tic = time.perf_counter()
+
+    for tau in [0.01]:#, 0.005, 0.0025]:
         dfs.append(
             simple_dmc(
                 #JastrowWF(0.5),
@@ -157,8 +160,12 @@ if __name__ == "__main__":
                 Hamiltonian(),
                 pos=np.random.randn(2, 3, nconfig),
                 tau=tau,
+                popstep=10,
                 nstep=10000, #10000
             )
         )
     df = pd.concat(dfs)
+    toc = time.perf_counter()
+    print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
+
     df.to_csv("tutorial.csv", index=False)

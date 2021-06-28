@@ -22,6 +22,6 @@ for tau,grp in df.groupby("tau"):
         'eavg':avg,
         'err':err})
 
-pd.DataFrame(dfreblock).to_csv("dmc_reblocked_noimp.csv")
+pd.DataFrame(dfreblock).to_csv("dmc_reblocked_2kwalk_PBC.csv")
 
 

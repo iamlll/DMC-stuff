@@ -39,7 +39,7 @@ def eph_energies(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
       pot: Coulomb energy - a constant for fixed electrons
       ph: Phonon + electron-phonon (local) energies
     """
-    ke = -0.5*np.sum(wf.laplacian(pos), axis=0)
+    ke = -0.5*np.sum(wf.laplacian(pos), axis=0) #switch prefactor back to -1 after checking w/ tutorial
     pot = ham.pot(pos)
     
     #find elec density matrix
@@ -56,23 +56,46 @@ def eph_energies(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
     #ph = -0.5/tau* (np.sum( -np.conj(f_ks)*f_ks + np.conj(f2p)*f2p ,axis=0) + np.sum( 1j*tau* ham.g/kcopy * (rho*fp - np.conj(rho)* np.conj(fp)),axis=0) ) # sqrt{<f"|f"> / <f|f>} normalization factor for f" = e^{-tH} |f>
     return ke+pot, ph, ke+pot+ph, rho, f2p
 
+def update_f_ks(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
+    """ calculate electron density and update phonon coherence amplitudes.
+    Input:
+      pos: electron positions (nelec,ndim,nconf) 
+      wf: wavefunction
+      ham: hamiltonian
+      tau: timestep
+      ks: allowed momentum values
+      kcopy: array of k-vector magnitudes, (nconfig) x (# ks) matrix
+    Return:
+      rho: electron density
+      newf_ks: updated coherence state amplitudes
+    """
+    #find elec density matrix
+    dprod1 = np.matmul(ks,pos[0,:,:]) #np array for each k value; k dot r1
+    dprod2 = np.matmul(ks,pos[1,:,:]) #k dot r2 
+    rho = np.exp(1j*dprod1) + np.exp(1j*dprod2) #electron density eikr1 + eikr2
+    
+    #Update f_k from H_ph and H_eph
+    newf_ks = f_ks* np.exp(-tau/l**2) - tau*1j* ham.g/kcopy * np.conj(rho) #f'' = f' - it*g/k* (rho*)
+
+    return rho, newf_ks
+
 def mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kmag):
     '''
     Calculate energy using the mixed estimator form E_0 = <psi_T| H |phi>, psi_T & phi are coherent states
     Input:
-        
         pos: electron positions (nelec, ndim, nconfigs)
         rho: electron density (eikr1 + eikr2)
         kmag: k-vector magnitudes, matrix size (len(ks), nconfigs)
         h_ks: coherent state amplitudes of trial wave function psi_T (len(ks), nconfigs)
         f_ks: coherent state amplitudes of our time-evolved numerical coherent state |{f_k}>
+    Output:
+        total energy
     '''
-    ke = -np.sum(wf.laplacian(pos), axis=0)
+    ke = -0.5*np.sum(wf.laplacian(pos), axis=0)
     #Find electron phonon energy
     H_eph = 1j* ham.g*np.sum( (-f_ks * rho + np.conj(h_ks) *np.conj(rho))/kmag , axis=0) #sum over all k values; f/kmag = (# ks) x nconfigs matrix
     #find H_ph
-    fhmag = f_ks* np.conj(h_ks) #find f_k magnitudes
-    H_ph = 1/l**2 * np.sum(fhmag,axis=0)
+    H_ph = 1/l**2 * np.sum(f_ks* np.conj(h_ks),axis=0)
     #return ke + H_eph + H_ph + ham.pot_ee(pos)
     return ke + ham.pot(pos)
 
@@ -111,8 +134,41 @@ def init_f_k(ks, kmag, g, nconfig):
     f_kcopy = np.array([[ f_ks[i] for j in range(nconfig)] for i in range(len(ks))]) #make f_ks array size (# ks) x (# configurations)
     return f_kcopy
 
+def popcontrol(pos, weight, wavg, wtot):
+    probability = np.cumsum(weight / wtot)
+    randnums = np.random.random(nconfig)
+    new_indices = np.searchsorted(probability, randnums)
+    posnew = pos[:, :, new_indices]
+    weight.fill(wavg)
+    return posnew, weight
+
+def RMPBranching(pos, weight, f_ks, kmag, g):
+    #Branching lets us split the walkers with too-large weights and kill the walkers with too-small weights; want to keep # walkers = const
+    #The growth estimator should be done between population control calls. That is, evaluate a w' and w, compute their ratio, without calling "comb". Only call "comb" to do population control once every few steps (say every 10 steps)!!
+
+    #RMP_DMC article suggestion for branching algorithm
+    newwalkers = weight + np.random.uniform(high=1.,size=nconfig) #number of walkers progressing to next step at each position
+    newwalkers = np.array(list(map(int,newwalkers)))
+
+    #find indices where number of new walkers > 0; configs where newwalkers = 0 get killed off
+    new_idxs = np.where(newwalkers >0)[0]
+    newpos = pos[:,:,new_idxs] #newpos contains only configs which contain >= 1 walker. Now want to append positions to this
+    newwts = weight[new_idxs]
+    newfs = f_ks[:,new_idxs]
+    #now append new walkers to our basis state arrays (position, f_k's, weights)
+    for i in np.where(newwalkers >1)[0]:
+        for num in range(newwalkers[i]-1):
+            newpos = np.append(newpos, pos[:,:,i][:,:,np.newaxis], axis=2)
+            #need to update weights as well
+            newwts = np.append(newwts, np.array([weight[i]]))
+            newfs = np.append(newfs, f_ks[:,i][:,np.newaxis], axis=1)
+    nconfig = pos.shape[-1]
+    kcopy = np.array([[ kmag[i] for j in range(nconfig)] for i in range(len(kmag))])
+    h_ks = init_f_k(ks, kmag, g,nconfig) 
+    return newpos, newwts, newfs, h_ks 
+
 from itertools import product
-def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
+def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
     """
   Inputs:
   g: DOS for el-ph interaction
@@ -132,6 +188,7 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
         "elocalvar": [],
         "eref": [],
         "tau": [],
+        "popstep": [],
     }
     nconfig = pos.shape[2]
     weight = np.ones(nconfig)
@@ -147,18 +204,17 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
     f_ks = init_f_k(ks, kmag, ham.g, nconfig)
     h_ks = f_ks #this describes our trial wave fxn coherent state amplitudes
 
-    print(-0.17/Ry) #initialize reference energy with our best guess for the Gaussian bipolaron binding energy (units of Ry)
-    #eref = -0.17/Ry
-    eloc, ph, tot, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+    #print(-0.17/Ry) #initialize reference energy with our best guess for the Gaussian bipolaron binding energy (units of Ry)
+    rho, _ = update_f_ks(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+    eloc = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
     eref = np.mean(eloc)
     print(eref)
-    
 
     for istep in range(nstep):
         rdist = np.mean(np.sum((pos[0,:,:]-pos[1,:,:])**2,axis=0)**0.5)
         
         driftold = tau * wf.gradient(pos)
-        elocold,_, _, _,_ = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+        elocold = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
 
         # Drift+diffusion 
         #with importance sampling
@@ -172,76 +228,45 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
         #chi = np.random.randn() #random number from Gaussian distn
         #posnew = pos + np.sqrt(tau)*chi
         #impose periodic boundary conditions
-        #pos = pos % L
+        pos = pos % L
         
-        eloc, _, _, _, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
-        E_mix = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
+        #eloc, _, _, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+        rho, f2p = update_f_ks(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
+        eloc = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
         f_ks = f2p
         
         oldwt = np.mean(weight)
         weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
-        wtot = np.sum(weight)
-        wavg = wtot / nconfig
-        Delta = -1./tau*np.log(wavg/oldwt) #need to normalize the weight ratio as <w_{n+1}>/<w_n>
         
         # Branch
-        probability = np.cumsum(weight / wtot)
-        randnums = np.random.random(nconfig)
-        new_indices = np.searchsorted(probability, randnums)
-        posnew = pos[:, :, new_indices]
+        wtot = np.sum(weight)
+        wavg = wtot / nconfig
         
-        #Branching lets us split the walkers with too-large weights and kill the walkers with too-small weights; want to keep # walkers = const
-        #The growth estimator should be done between population control calls. That is, evaluate a w' and w, compute their ratio, without calling "comb". Only call "comb" to do population control once every few steps (say every 10 steps)!!
-        '''
-            #RMP_DMC article suggestion for branching algorithm
-            newwalkers = weight + np.random.uniform(high=1.,size=nconfig) #number of walkers progressing to next step at each position
-            newwalkers = np.array(list(map(int,newwalkers)))
+        if istep % popstep == 0:
+            pos, weight = popcontrol(pos, weight, wavg, wtot)
 
-            #find indices where number of new walkers > 0; configs where newwalkers = 0 get killed off
-            new_idxs = np.where(newwalkers >0)[0]
-            newpos = pos[:,:,new_idxs] #newpos contains only configs which contain >= 1 walker. Now want to append positions to this
-            newwts = weight[new_idxs]
-            newfs = f_ks[:,new_idxs]
-            #now append new walkers to our basis state arrays (position, f_k's, weights)
-            for i in np.where(newwalkers >1)[0]:
-                for num in range(newwalkers[i]-1):
-                    newpos = np.append(newpos, pos[:,:,i][:,:,np.newaxis], axis=2)
-                    #need to update weights as well
-                    newwts = np.append(newwts, np.array([weight[i]]))
-                    newfs = np.append(newfs, f_ks[:,i][:,np.newaxis], axis=1)
-            pos = newpos
-            weight = newwts
-            f_ks = newfs
-            nconfig = pos.shape[-1]
-            kcopy = np.array([[ kmag[i] for j in range(nconfig)] for i in range(len(kmag))])
-            h_ks = init_f_k(ks, kmag, g,nconfig) 
-        '''
         # Update the reference energy
-        eref = eref + Delta #E_gth = eref + Delta
-        pos = posnew.copy()
-        weight.fill(wavg)
+        Delta = -1./tau* np.log(wavg/oldwt) #need to normalize <w_{n+1}>/<w_n>
+        eref = eref + Delta
 
-        if istep % 1 == 0:
+        if istep % popstep == 0:
             print(
                 "iteration",
                 istep,
                 "sep dist",
                 rdist,
-                "average weight",
+                "avg wt",
                 wavg.real,
-                "E_mix",
-                np.mean(E_mix).real,
-                "E_gth", #want E_gth = 0 as tau -> inf
-                eref.real,
-                "variance", #want E_gth = 0 as tau -> inf
+                "average energy",
+                np.mean(eloc * weight / wavg),
+                #"E_mix",
+                #np.mean(E_mix).real,
+                "eref",
+                eref,
+                "sig_gth",
                 np.std(eloc),
-                "Delta", #at this particular step, per config; should converge to E_mix as tau -> 0. In this toy problem E_0 = E_loc = E_ref
-                #np.mean(eloc * weight / wavg),
-                np.mean(Delta).real,
-                #"f_k0",
-                #f_ks[0][0],
             )
-        
+
         df["step"].append(istep)
         df["elocal"].append(np.mean(eloc))
         df["weight"].append(np.mean(weight))
@@ -249,6 +274,7 @@ def simple_dmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
         df["weightvar"].append(np.std(weight))
         df["eref"].append(eref)
         df["tau"].append(tau)
+        df['popstep'].append(popstep)
     return pd.DataFrame(df)
 
 
@@ -258,15 +284,18 @@ if __name__ == "__main__":
     from slaterwf import ExponentSlaterWF
     from wavefunction import MultiplyWF, JastrowWF
     from ham import Hamiltonian
+    import time
 
-    nconfig = 5000 #default is 5000, we only need one since there's no randomness/branching going on yet
+    nconfig = 2000 #default is 5000, we only need one since there's no randomness/branching going on yet
     dfs = []
     N = 10 #num of momenta
     L = 5 #sys size/length measured in a0
     g = 2/l**2 *np.sqrt(np.pi*alpha* l/L**3)
     U = 2.
     np.random.seed(0)
-    for tau in [0.01]: #,0.005, 0.0025]:
+    tic = time.perf_counter()
+
+    for tau in [0.0025]: #[0.01, 0.005, 0.0025]:
         dfs.append(
             simple_dmc(
                 #JastrowWF(0.5), 
@@ -275,8 +304,12 @@ if __name__ == "__main__":
                 pos=np.random.randn(2, 3, nconfig), 
                 N=N, L=L,
                 tau=tau,
-                nstep=3000, #orig: 10000
+                popstep=10,
+                nstep=8000, #orig: 10000
             )
         )
+    toc = time.perf_counter()
+    print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
+
     df = pd.concat(dfs)
-    df.to_csv("phonon_mc.csv", index=False)
+    df.to_csv("no_phonon_2kwalk_PBL.csv", index=False)
