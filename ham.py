@@ -1,7 +1,7 @@
 import numpy as np
 import sys
 sys.path.append("../pyqmc")
-from pyqmc import ewald
+from pyqmc import ewald, coord
 from pyscf.pbc import gto
 
 class Hamiltonian:
@@ -23,7 +23,7 @@ class Hamiltonian:
     return np.sum(-2*self.Z/r,axis=0)
 
   def pot_ee(self,pos):
-    """ electron-electron potential of configurations 'pos'. Need to implement Ewald sum """
+    """ electron-electron potential of configurations 'pos'. """
     r12 = np.linalg.norm(pos[0,:,:]-pos[1,:,:],axis=0)
     return self.U/r12
 
@@ -35,18 +35,20 @@ class Hamiltonian:
     '''Need to get pos into (nconf, nelec, ndim) shape; currently elec positions have shape (nelec,ndim,nconf) - should move this from hamiltonian to DMC file
     input: 
       L: system size
+      ewaldobj: Ewald class object (from PyQMC)
     '''
-    swappos = np.moveaxis(pos,-1,0)
     #create supercell
     cell = gto.Cell() #see PySCF docs for details
-    cell.build(atom='He 0 0 0', basis='gth-dzvp', a=np.eye(swappos.shape[1])*L) #I don't know what this choice of basis is
+    cell.build(atom='He 0 0 0', basis='gth-dzvp', a=np.eye(pos.shape[1])*L, unit='B') #B = units of Bohr radii, I don't know what this choice of basis is but I don't think it matters, none of the Ewald functions seem to call on it
     #create Ewald object instance
     ewaldobj = ewald.Ewald(cell)
-    print(ewaldobj)   
-    ee, ei, ii = ewaldobj.energy(swappos)
+    
+    swappos = np.moveaxis(pos,-1,0)
+    #create PeriodicConfigs object
+    pbcconfigs = coord.PeriodicConfigs(swappos, ewaldobj.latvec) 
+    ee, ei, ii = ewaldobj.energy(pbcconfigs)
     coul = ee + ei + ii
-    print(coul)
-    return ham.U * np.moveaxis(coul, 0,-1) #get back into original position config; 0.5 to get into natural units; get rid of this when re-inserting phonons
+    return self.U * coul
 
   def pot_ewald(self,pos, L=5):
     """ potential energy of configuations 'pos' """
@@ -55,10 +57,13 @@ class Hamiltonian:
 if __name__=="__main__":
   # This part of the code will test your implementation. 
   # Don't modify it!
-  pos=np.array([[[0.1,0.2,0.3]],[[0.2,-0.1,-0.2]]]) #r1 and r2
-  print(pos)
+  np.random.seed(0) 
+  pos=np.random.randn(2,3,1) #2x3x5 dimensional array of random numbers plucked from a normal distn (mean = 0, stdev = 1); [nelec, ndim, nconfig]
   f_ks = np.array([[0.-2.j], [0.-1.33333333j]])
   ham=Hamiltonian(U=4,g=2, hw=0.5)
-  #print(ham.g)
-  #print("Error:")
-  print(ham.pot_ewald(pos))
+  
+  print(ham.pot_ee(pos))
+  print(ham.ewald(pos, 5))
+  print(ham.ewald(pos, 50))
+  print(ham.ewald(pos, 100))
+  print(ham.ewald(pos, 1000))
