@@ -40,7 +40,7 @@ def eph_energies(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
       ph: Phonon + electron-phonon (local) energies
     """
     ke = -0.5*np.sum(wf.laplacian(pos), axis=0) #switch prefactor back to -1 after checking w/ tutorial
-    pot = ham.pot(pos)
+    pot = ham.pot_ewald(pos)
     
     #find elec density matrix
     dprod1 = np.matmul(ks,pos[0,:,:]) #np array for each k value; k dot r1
@@ -97,7 +97,7 @@ def mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kmag):
     #find H_ph
     H_ph = 1/l**2 * np.sum(f_ks* np.conj(h_ks),axis=0)
     #return ke + H_eph + H_ph + ham.pot_ee(pos)
-    return ke + ham.pot(pos)
+    return ke + ham.pot_ewald(pos)
 
 #####################################
 
@@ -276,7 +276,6 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
         df["tau"].append(tau)
         df['popstep'].append(popstep)
     return pd.DataFrame(df)
-
 
 #####################################
 
