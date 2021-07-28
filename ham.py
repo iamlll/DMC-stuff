@@ -46,11 +46,10 @@ class Hamiltonian:
     swappos = np.moveaxis(pos,-1,0)
     #create PeriodicConfigs object
     pbcconfigs = coord.PeriodicConfigs(swappos, ewaldobj.latvec) 
-    ee, ei, ii = ewaldobj.energy(pbcconfigs)
-    coul = ee + ei + ii
-    return self.U * coul
+    ee, _,_ = ewaldobj.energy(pbcconfigs)
+    return self.U*ee #ignore e-ion and ion-ion contributions
 
-  def pot_ewald(self,pos, L=5):
+  def pot_ewald(self,pos, L=1E6):
     """ potential energy of configuations 'pos' """
     return 0.5*( self.pot_en(pos)+self.ewald(pos, L) )
 
@@ -63,7 +62,7 @@ if __name__=="__main__":
   ham=Hamiltonian(U=4,g=2, hw=0.5)
   
   print(ham.pot_ee(pos))
-  print(ham.ewald(pos, 5))
-  print(ham.ewald(pos, 50))
   print(ham.ewald(pos, 100))
   print(ham.ewald(pos, 1000))
+  print(ham.ewald(pos, 100000))
+  print(ham.ewald(pos, 1E6))

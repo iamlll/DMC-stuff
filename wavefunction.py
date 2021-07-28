@@ -17,6 +17,7 @@ class JastrowWF:
     eedist=np.sqrt(np.sum((pos[0,:,:]-pos[1,:,:])**2,axis=0))
     exp_ee=(self.a_ee*eedist) #/(1 + self.eep_den*eedist)
     return np.exp(exp_ee)
+
   #-------------------------
 
   def gradient(self,pos):

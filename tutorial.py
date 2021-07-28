@@ -2,7 +2,7 @@
 import numpy as np
 import sys
 
-sys.path.append("../StochasticSchool/Day1/VMC/solutions")
+#sys.path.append("../StochasticSchool/Day1/VMC/solutions")
 
 from metropolis import metropolis_sample
 import pandas as pd

@@ -6,8 +6,6 @@ Can use to test Stochastic School tutorial He atom DMC calc w/o periodic boundar
 import numpy as np
 import sys
 
-sys.path.append("../StochasticSchool/Day1/VMC/solutions")
-
 from metropolis import metropolis_sample
 import pandas as pd
 
@@ -44,7 +42,7 @@ def eph_energies(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
       ph: Phonon + electron-phonon (local) energies
     """
     ke = -0.5*np.sum(wf.laplacian(pos), axis=0) #switch prefactor back to -1 after checking w/ tutorial
-    pot = ham.pot(pos)
+    pot = ham.pot_ewald(pos)
     
     #find elec density matrix
     dprod1 = np.matmul(ks,pos[0,:,:]) #np array for each k value; k dot r1
@@ -95,13 +93,13 @@ def mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kmag):
     Output:
         total energy
     '''
-    ke = -0.5*np.sum(wf.laplacian(pos), axis=0)
+    ke = -0.5*np.sum(wf.laplacian(pos), axis=0) #should have coeff of -1 for actual calc
     #Find electron phonon energy
     H_eph = 1j* ham.g*np.sum( (-f_ks * rho + np.conj(h_ks) *np.conj(rho))/kmag , axis=0) #sum over all k values; f/kmag = (# ks) x nconfigs matrix
     #find H_ph
     H_ph = 1/l**2 * np.sum(f_ks* np.conj(h_ks),axis=0)
     #return ke + H_eph + H_ph + ham.pot_ee(pos)
-    return ke + ham.pot(pos)
+    return ke + ham.pot_ewald(pos)
 
 #####################################
 
@@ -145,31 +143,6 @@ def popcontrol(pos, weight, wavg, wtot):
     posnew = pos[:, :, new_indices]
     weight.fill(wavg)
     return posnew, weight
-
-def RMPBranching(pos, weight, f_ks, kmag, g):
-    #Branching lets us split the walkers with too-large weights and kill the walkers with too-small weights; want to keep # walkers = const
-    #The growth estimator should be done between population control calls. That is, evaluate a w' and w, compute their ratio, without calling "comb". Only call "comb" to do population control once every few steps (say every 10 steps)!!
-
-    #RMP_DMC article suggestion for branching algorithm
-    newwalkers = weight + np.random.uniform(high=1.,size=nconfig) #number of walkers progressing to next step at each position
-    newwalkers = np.array(list(map(int,newwalkers)))
-
-    #find indices where number of new walkers > 0; configs where newwalkers = 0 get killed off
-    new_idxs = np.where(newwalkers >0)[0]
-    newpos = pos[:,:,new_idxs] #newpos contains only configs which contain >= 1 walker. Now want to append positions to this
-    newwts = weight[new_idxs]
-    newfs = f_ks[:,new_idxs]
-    #now append new walkers to our basis state arrays (position, f_k's, weights)
-    for i in np.where(newwalkers >1)[0]:
-        for num in range(newwalkers[i]-1):
-            newpos = np.append(newpos, pos[:,:,i][:,:,np.newaxis], axis=2)
-            #need to update weights as well
-            newwts = np.append(newwts, np.array([weight[i]]))
-            newfs = np.append(newfs, f_ks[:,i][:,np.newaxis], axis=1)
-    nconfig = pos.shape[-1]
-    kcopy = np.array([[ kmag[i] for j in range(nconfig)] for i in range(len(kmag))])
-    h_ks = init_f_k(ks, kmag, g,nconfig) 
-    return newpos, newwts, newfs, h_ks 
 
 from itertools import product
 def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
@@ -232,7 +205,7 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
         #chi = np.random.randn() #random number from Gaussian distn
         #posnew = pos + np.sqrt(tau)*chi
         #impose periodic boundary conditions
-        #pos = pos % L
+        pos = pos % L
         
         #eloc, _, _, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
         rho, f2p = update_f_ks(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
@@ -292,11 +265,13 @@ if __name__ == "__main__":
     nconfig = 2000 #default is 5000, we only need one since there's no randomness/branching going on yet
     dfs = []
     N = 10 #num of momenta
-    L = 5 #sys size/length measured in a0
+    r_s = int(sys.argv[1]) #inter-electron spacing, controls density
+    L = (4*np.pi*2/3)**(1/3) * r_s #sys size/length measured in a0; multiply by 2 since 2 = # of electrons
     g = 2/l**2 *np.sqrt(np.pi*alpha* l/L**3)
     U = 2.
     np.random.seed(0)
     tic = time.perf_counter()
+    print("jellium_rs_" + str(r_s) + ".csv")
 
     for tau in [0.0025]: #[0.01, 0.005, 0.0025]:
         dfs.append(
@@ -315,4 +290,4 @@ if __name__ == "__main__":
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
     df = pd.concat(dfs)
-    df.to_csv("dmc_no_ph.csv", index=False)
+    df.to_csv("jellium_rs_" + str(r_s) + ".csv", index=False)
