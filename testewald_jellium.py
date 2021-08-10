@@ -1,5 +1,5 @@
 '''
-Can use to test Stochastic School tutorial He atom DMC calc w/o periodic boundary conditions (PBC). Also includes phonon update methods for both growth and mixed estimators.
+Testing Ewald + jellium routines considering only KE + Coulomb energies (no phonons)
 '''
 
 #!/usr/bin/env python
@@ -27,79 +27,11 @@ l = np.sqrt(hbar/(2*m*w))/ a0 #phonon length in units of the Bohr radius
 
 #####################################
 
-def eph_energies(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
-    """ calculate kinetic + Coulomb + electron-phonon and phonon energies
-    Input:
-      pos: electron positions (nelec,ndim,nconf) 
-      wf: wavefunction
-      ham: hamiltonian
-      tau: timestep
-      ks: allowed momentum values
-      kcopy: array of k-vector magnitudes, (nconfig) x (# ks) matrix
-    Return:
-      ke: kinetic energy
-      pot: Coulomb energy - a constant for fixed electrons
-      ph: Phonon + electron-phonon (local) energies
-    """
-    ke = -0.5*np.sum(wf.laplacian(pos), axis=0) #switch prefactor back to -1 after checking w/ tutorial
-    pot = ham.pot_ewald(pos)
-    
-    #find elec density matrix
-    dprod1 = np.matmul(ks,pos[0,:,:]) #np array for each k value; k dot r1
-    dprod2 = np.matmul(ks,pos[1,:,:]) #k dot r2 
-    rho = np.exp(1j*dprod1) + np.exp(1j*dprod2) #electron density eikr1 + eikr2
-    
-    #Update f_k from H_ph and H_eph
-    fp = f_ks* np.exp(-tau/l**2)
-    f2p = fp - tau*1j* ham.g/kcopy * np.conj(rho) #f'' = f' - it*g/k* (rho*)
+def jellium_E(pos, wf, ham):
+    '''returns kinetic energy, Ewald energy (e-e only), and total potential in Rydbergs'''
 
-    #Update weights from H_ph and H_eph, and calculate local energy
-    ph = -1./tau* (np.sum( tau*1j* ham.g * fp/kcopy*rho,axis=0) + np.sum( np.conj(h_ks)*(f2p-f_ks),axis=0) ) #sum over all k-values; coherent state weight contributions are normalized
-    #ph = -0.5/tau* (np.sum( -np.conj(f_ks)*f_ks + np.conj(f2p)*f2p ,axis=0) + np.sum( 1j*tau* ham.g/kcopy * (rho*fp - np.conj(rho)* np.conj(fp)),axis=0) ) # sqrt{<f"|f"> / <f|f>} normalization factor for f" = e^{-tH} |f>
-    return ke+pot, ph, ke+pot+ph, rho, f2p
-
-def update_f_ks(pos, wf,ham, tau, h_ks,f_ks, ks, kcopy):
-    """ calculate electron density and update phonon coherence amplitudes.
-    Input:
-      pos: electron positions (nelec,ndim,nconf) 
-      wf: wavefunction
-      ham: hamiltonian
-      tau: timestep
-      ks: allowed momentum values
-      kcopy: array of k-vector magnitudes, (nconfig) x (# ks) matrix
-    Return:
-      rho: electron density
-      newf_ks: updated coherence state amplitudes
-    """
-    #find elec density matrix
-    dprod1 = np.matmul(ks,pos[0,:,:]) #np array for each k value; k dot r1
-    dprod2 = np.matmul(ks,pos[1,:,:]) #k dot r2 
-    rho = np.exp(1j*dprod1) + np.exp(1j*dprod2) #electron density eikr1 + eikr2
-    
-    #Update f_k from H_ph and H_eph
-    newf_ks = f_ks* np.exp(-tau/l**2) - tau*1j* ham.g/kcopy * np.conj(rho) #f'' = f' - it*g/k* (rho*)
-
-    return rho, newf_ks
-
-def mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kmag):
-    '''
-    Calculate energy using the mixed estimator form E_0 = <psi_T| H |phi>, psi_T & phi are coherent states
-    Input:
-        pos: electron positions (nelec, ndim, nconfigs)
-        rho: electron density (eikr1 + eikr2)
-        kmag: k-vector magnitudes, matrix size (len(ks), nconfigs)
-        h_ks: coherent state amplitudes of trial wave function psi_T (len(ks), nconfigs)
-        f_ks: coherent state amplitudes of our time-evolved numerical coherent state |{f_k}>
-    Output:
-        total energy
-    '''
-    ke = -0.5*np.sum(wf.laplacian(pos), axis=0) #should have coeff of -1 for actual calc
-    #Find electron phonon energy
-    H_eph = 1j* ham.g*np.sum( (-f_ks * rho + np.conj(h_ks) *np.conj(rho))/kmag , axis=0) #sum over all k values; f/kmag = (# ks) x nconfigs matrix
-    #find H_ph
-    H_ph = 1/l**2 * np.sum(f_ks* np.conj(h_ks),axis=0)
-    #return ke + H_eph + H_ph + ham.pot_ee(pos)
-    return ke + ham.pot_ewald(pos)
+    ke = -np.sum(wf.laplacian(pos), axis=0) #should have coeff of -1 for actual calc
+    return ke, ham.ewald(pos), ke + ham.ewald(pos)
 
 #####################################
 
@@ -122,20 +54,6 @@ def acceptance(posold, posnew, driftold, driftnew, tau, wf):
     ratio = wf.value(posnew) ** 2 / wf.value(posold) ** 2
     return np.minimum(1,ratio * gfratio)
 
-def init_f_k(ks, kmag, g, nconfig):
-    '''
-    Initialize the phonon displacement functions f_k from the optimized Gaussian result
-    input:
-        ks: allowed k-vectors in the supercell
-    '''
-    #find f_ks
-    yopt = 1.39
-    sopt = 1.05E-9/a0 #in units of the Bohr radius
-    d = yopt*sopt #assume pointing in z direction
-    f_ks = -2j*g*l**2/kmag* np.exp(-kmag**2 * sopt**2/4) * (np.cos(ks[:,2] * d/2) - np.exp(-yopt**2/2) )/(1- np.exp(-yopt**2/2))
-    f_kcopy = np.array([[ f_ks[i] for j in range(nconfig)] for i in range(len(ks))]) #make f_ks array size (# ks) x (# configurations)
-    return f_kcopy
-
 def popcontrol(pos, weight, wavg, wtot):
     probability = np.cumsum(weight / wtot)
     randnums = np.random.random(nconfig)
@@ -144,13 +62,13 @@ def popcontrol(pos, weight, wavg, wtot):
     weight.fill(wavg)
     return posnew, weight
 
+def periodic(pos, L):
+    return None
+
 from itertools import product
-def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
+def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, L=10):
     """
   Inputs:
-  g: DOS for el-ph interaction
-  w: LO phonon freq
-  N: number of allowed k-vals in each direction
   L: box length (units of a0)
  
   Outputs:
@@ -159,6 +77,7 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
   """
     df = {
         "step": [],
+        "r_s": [],
         "elocal": [],
         "weight": [],
         "weightvar": [],
@@ -170,20 +89,7 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
     nconfig = pos.shape[2]
     weight = np.ones(nconfig)
 
-    #Make a supercell/box
-    #k = (nx, ny, nz)*2*pi/L for nx^2+ny^2+nz^2 <= n_c^2 for cutoff value n_c = N, where n_c -> inf is the continuum limit. 
-    #A k-sphere cutoff is conventional as it specifies a unique KE cutoff
-    ks = 2*np.pi/L* np.array([[nx,ny,nz] for nx,ny,nz in product(range(1,N+1), range(1,N+1), range(1,N+1)) if nx**2+ny**2+nz**2 <= N**2 ])
-
-    kmag = np.sum(ks**2,axis=1)**0.5 #find k magnitudes
-    kcopy = np.array([[ kmag[i] for j in range(nconfig)] for i in range(len(kmag))])
-    #initialize f_ks
-    f_ks = init_f_k(ks, kmag, ham.g, nconfig)
-    h_ks = f_ks #this describes our trial wave fxn coherent state amplitudes
-
-    #print(-0.17/Ry) #initialize reference energy with our best guess for the Gaussian bipolaron binding energy (units of Ry)
-    rho, _ = update_f_ks(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
-    eloc = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
+    _,_,eloc = jellium_E(pos, wf, ham)
     eref = np.mean(eloc)
     print(eref)
 
@@ -191,7 +97,7 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
         rdist = np.mean(np.sum((pos[0,:,:]-pos[1,:,:])**2,axis=0)**0.5)
         
         driftold = tau * wf.gradient(pos)
-        elocold = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
+        _,_,elocold = jellium_E(pos, wf, ham)
 
         # Drift+diffusion 
         #with importance sampling
@@ -202,15 +108,11 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
         pos[:, :, imove] = posnew[:, :, imove]
         acc_ratio = np.sum(imove) / nconfig
 
-        #chi = np.random.randn() #random number from Gaussian distn
-        #posnew = pos + np.sqrt(tau)*chi
-        #impose periodic boundary conditions
-        pos = pos % L
+        #impose periodic boundary conditions - THIS IS WRONG, NEED TO IMPLEMENT MINIMUM IMAGE CONVENTION
+        #pos = pos % L
         
         #eloc, _, _, rho, f2p = eph_energies(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
-        rho, f2p = update_f_ks(pos, wf, ham, tau, h_ks, f_ks, ks, kcopy)
-        eloc = mixed_estimator(pos, wf, rho, ham, h_ks, f_ks, kcopy) #mixed estimator formulation of energy
-        f_ks = f2p
+        ke,ewald,eloc = jellium_E(pos, wf, ham)
         
         oldwt = np.mean(weight)
         weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
@@ -232,12 +134,11 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
                 istep,
                 "sep dist",
                 rdist,
+                #"ke", np.mean(ke), "ewald", np.mean(ewald),
                 "avg wt",
                 wavg.real,
                 "average energy",
                 np.mean(eloc * weight / wavg),
-                #"E_mix",
-                #np.mean(E_mix).real,
                 "eref",
                 eref,
                 "sig_gth",
@@ -251,43 +152,108 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, N=5, L=10):
         df["weightvar"].append(np.std(weight))
         df["eref"].append(eref)
         df["tau"].append(tau)
+        df["r_s"].append(r_s)
         df['popstep'].append(popstep)
+    return pd.DataFrame(df)
+
+def simple_vmc(wf, ham, tau, pos, nstep=1000, N=5, L=10):
+    """
+  Force every walker's weight to be 1.0 at every step, and never create/destroy walkers (i.e. no branching, no importance sampling)
+
+  Inputs:
+  L: box length (units of a0)
+ 
+  Outputs:
+  A Pandas dataframe with each 
+
+  """
+    df = {
+        "step": [],
+        "r_s": [],
+        "tau": [],
+        "elocal": [],
+        "weight": [],
+    }
+    nconfig = pos.shape[2]
+    weight = np.ones(nconfig)
+    acceptance = 0.0
+    for istep in range(nstep):
+        wfold=wf.value(pos)
+        _,_,elocold = jellium_E(pos, wf, ham)
+        # propose a move
+        gauss_move_old = np.random.randn(*pos.shape)
+        posnew=pos + np.sqrt(tau)*gauss_move_old
+        posnew = posnew % L
+
+        wfnew=wf.value(posnew)
+
+        # calculate Metropolis-Rosenbluth-Teller acceptance probability
+        prob = wfnew**2/wfold**2 # for reversible moves
+
+        # get indices of accepted moves
+        acc_idx = (prob + np.random.random_sample(nconfig) > 1.0)
+
+        # update stale stored values for accepted configurations
+        pos[:,:,acc_idx] = posnew[:,:,acc_idx]
+        wfold[acc_idx] = wfnew[acc_idx]
+        #acceptance += np.mean(acc_idx)/nstep
+        ke,ewald,eloc = jellium_E(pos, wf, ham)
+
+        if istep % 10 == 0:
+            print(
+                "iteration",
+                istep,
+                #"ke", np.mean(ke), "ewald", np.mean(ewald),
+                "average energy",
+                np.mean(eloc),
+            )
+
+        df["step"].append(istep)
+        df["elocal"].append(np.mean(eloc))
+        df["weight"].append(np.mean(weight))
+        df["tau"].append(tau)
+        df["r_s"].append(r_s)
     return pd.DataFrame(df)
 
 #####################################
 
 if __name__ == "__main__":
     from slaterwf import ExponentSlaterWF
-    from wavefunction import MultiplyWF, JastrowWF
+    from wavefunction import MultiplyWF, JastrowWF, UniformWF
     from ham import Hamiltonian
     import time
 
-    nconfig = 2000 #default is 5000, we only need one since there's no randomness/branching going on yet
+    tproj = 500 #projection time = tau * nsteps
+    tequil = 100 #equilibration time = tau*(# steps thrown out)
+
+    nconfig = 500 #default is 5000
     dfs = []
-    N = 10 #num of momenta
     r_s = int(sys.argv[1]) #inter-electron spacing, controls density
     L = (4*np.pi*2/3)**(1/3) * r_s #sys size/length measured in a0; multiply by 2 since 2 = # of electrons
-    g = 2/l**2 *np.sqrt(np.pi*alpha* l/L**3)
     U = 2.
     np.random.seed(0)
     tic = time.perf_counter()
     print("jellium_rs_" + str(r_s) + ".csv")
 
-    for tau in [0.0025]: #[0.01, 0.005, 0.0025]:
+    for tau in [r_s/10, r_s/20, r_s/40, r_s/80]: #[0.01, 0.005, 0.0025]:
+        nstep = int(tproj/tau)
+        print(nstep)
         dfs.append(
             simple_dmc(
-                #JastrowWF(0.5), 
-                MultiplyWF(ExponentSlaterWF(2.0), JastrowWF(0.5)),
-                Hamiltonian(g=g, hw=1/l**2),
-                pos=np.random.randn(2, 3, nconfig), 
-                N=N, L=L,
+                UniformWF(),
+                #JastrowWF(0.5),
+                #MultiplyWF(ExponentSlaterWF(2.0), JastrowWF(0.5)),
+                Hamiltonian(U=U, L=L),
+                pos= L* np.random.rand(2, 3, nconfig), 
+                L=L,
                 tau=tau,
                 popstep=10,
-                nstep=8000, #orig: 10000
+                nstep=nstep #orig: 10000
             )
         )
+        
     toc = time.perf_counter()
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
     df = pd.concat(dfs)
-    df.to_csv("jellium_rs_" + str(r_s) + ".csv", index=False)
+    df.to_csv("DMCjellium_rs_" + str(r_s) + "_popsize_" + str(nconfig) + "_tproj_" + str(tproj) +  ".csv", index=False)

@@ -1,5 +1,22 @@
 import numpy as np
 
+class UniformWF:
+  '''
+  A uniform wave function fixed at the value 1
+  '''
+  def __init__(self,val=1.):
+    self.val=val
+  def value(self, pos):
+    scalar = np.full(pos.shape[-1], self.val)
+    return scalar
+  def gradient(self, pos):
+    grad = np.zeros(pos.shape)
+    return grad
+  def laplacian(self, pos):
+    scalar = pos.sum(axis=1)
+    scalar.fill(0)
+    return scalar
+
 class JastrowWF:
   """
   Jastrow factor of the form 
@@ -126,6 +143,11 @@ def test_wavefunction(wf):
 if __name__=="__main__":
   import pandas as pd
   testpos=np.random.randn(2,3,5)
+
+  print("Uniform wavefunction")
+  uni=UniformWF()
+  print(uni.value(testpos))
+  test_wavefunction(uni)
 
   print("Jastrow wavefunction")
   jas=JastrowWF(1.0)
