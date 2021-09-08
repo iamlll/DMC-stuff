@@ -12,7 +12,7 @@ def reblock(eloc,warmup,nblocks):
 filenames = sys.argv[1:]
 
 warmup=1000
-tequil = 100 #equilibration time = timestep * (# steps thrown out)
+tequil = 20 #equilibration time = timestep * (# steps thrown out)
 blocksize=1.0 # in Hartree-1
 
 dfreblock=[]
@@ -34,4 +34,4 @@ for name in filenames:
             'eavg':avg/2, #Rydbergs PER ELECTRON
             'err':err})
 
-pd.DataFrame(dfreblock).to_csv("jellium_reblocked_tequil_" + str(tequil) + ".csv")
+pd.DataFrame(dfreblock).to_csv("DMC_free_reblocked_tequil_" + str(tequil) + ".csv")

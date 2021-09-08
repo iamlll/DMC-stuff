@@ -14,11 +14,12 @@ class Hamiltonian:
     '''
     self.U = U
     self.Z=Z
+    self.L = L
     
     ndim = 3
     #create supercell
     cell = gto.Cell() #see PySCF docs for details
-    cell.build(atom='He 0 0 0', a=np.eye(ndim)*L, unit='B') #B = units of Bohr radii
+    cell.build(atom='He 0 0 0', a=np.eye(ndim)*self.L, unit='B') #B = units of Bohr radii
     #create Ewald object instance
     self.ewaldobj = ewald.Ewald(cell)
     
@@ -37,7 +38,7 @@ class Hamiltonian:
     return 0.5*( self.pot_en(pos)+self.pot_ee(pos) )
 
   def ewald(self, pos):
-    '''Need to get pos into (nconf, nelec, ndim) shape; currently elec positions have shape (nelec,ndim,nconf) - should move this from hamiltonian to DMC file
+    '''Need to get pos into (nconf, nelec, ndim) shape; currently elec positions have shape (nelec,ndim,nconf)
     input: 
       ewaldobj: Ewald class object (from PyQMC)
     '''

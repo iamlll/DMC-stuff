@@ -5,6 +5,7 @@ import seaborn as sns
 import sys
 from scipy.optimize import curve_fit
 
+t_equil = 20
 sns.set_style("white")
 def PlotVars(df, xvar=['step'], yvars=['elocal']):
     '''
@@ -15,8 +16,9 @@ def PlotVars(df, xvar=['step'], yvars=['elocal']):
     for tau in taus:
         df2 = df[df['tau']==tau]
         print(df.keys())
-        g=sns.PairGrid(df2,x_vars=['step'], y_vars=['elocal'],hue='popstep')
-        nequil = 1000
+        #g=sns.PairGrid(df2,x_vars=xvar, y_vars=yvars,hue='popstep')
+        g=sns.PairGrid(df2,x_vars=xvar, y_vars=yvars)
+        nequil = int(t_equil/tau)
         plt.gca().axvline(nequil) #plot how many steps thrown out during reblocking procedure
         g.map(plt.scatter,s=1)
         g.add_legend()
@@ -111,5 +113,6 @@ def PlotErr(df, xvar='tau', yvar='eavg',err='err', units='ha', fit=True):
     
 if __name__ == "__main__":
     df = pd.read_csv(sys.argv[1])
-    #PlotVars(df) 
-    PlotErr(df)
+    PlotVars(df,yvars=['ke','pot','elocal']) 
+    #PlotVars(df,yvars=['ke','pot','elocal','acceptance']) 
+    #PlotErr(df)
