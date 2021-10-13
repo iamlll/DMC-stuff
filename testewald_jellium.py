@@ -31,18 +31,25 @@ l = np.sqrt(hbar/(2*m*w))/ a0 #phonon length in units of the Bohr radius
 def PBCjell_E(pos, wf, ham):
     '''returns kinetic energy, Ewald energy (e-e only), and total potential in Rydbergs using the distance between the two electrons as input (i.e. applying minimum image convention PBC)'''
 
-    ke = -np.sum(wf.laplacian(pos), axis=0)
-    return ke, 0., ke
-    #return ke, ham.ewald(pos), ke + ham.ewald(pos)
+    ke = -np.sum(wf.nabla2(pos), axis=0)
+    #return ke, 0., ke
+    return ke, ham.ewald(pos), ke + ham.ewald(pos)
 
 def Test_Jastrow(wf, ham, nconfig=5):
+    wf2 = PBCJastrowWF(L, True, True)
     initpos = np.zeros((2,3,nconfig))
-    xs = (wf.L)*np.random.rand(nconfig)
-    #xs = np.where(xs >= wf.L, xs - wf.L, xs)
-    #xs = np.where(xs < 0, xs + wf.L, xs)
-
-    initpos[1,0,:] = xs
-
+    np.random.seed(0)
+    
+    randL = (wf.L)*np.random.rand(nconfig)
+    #comput vgl, eloc along the x axis only 
+    #initpos[1,0,:] = randL
+    #Now compute same quantities along the line y=x
+    ys = randL/np.sqrt(2)
+    initpos[1,0,:] = ys
+    initpos[1,1,:] = ys #set both x and y coord of elec 1 to same coordinate: y=x
+    #plot with |r1-r2| = r as indep variable
+    rs = np.sqrt(np.sum((initpos[0,:,:]-initpos[1,:,:])**2,axis=0))
+    '''
     bins = np.linspace(0,L,5)
     Xs = np.ravel(initpos[:,0,:])
     Ys = np.ravel(initpos[:,1,:])
@@ -53,27 +60,27 @@ def Test_Jastrow(wf, ham, nconfig=5):
     cp = axhist.pcolormesh(Xbins, Ybins, hist)
     cbar=fig2.colorbar(cp) # Add a colorbar to a plot
     cbar.ax.set_ylabel("number")
-
+    '''
     v = wf.value(initpos)
     g = wf.gradient(initpos)[0,0,:] #just take the positive x deriv
     l = wf.nabla2(initpos)[0]
     _,_,eloc = PBCjell_E(initpos,wf,ham)
-    #Plot v,g,l,E vs x. v,g,l should satisfy PBC; eloc should not diverge as x->0 
+    #repeat vgl calcs but with wavefunction that has been smoothed out at r = L/2
     #fig = plt.figure(figsize=(6,4.5))
     #ax = fig.add_subplot(111)
     fig, ax = plt.subplots(2, 2, sharex=True) 
-    ax[0,0].plot(xs,v,'b.',label='value')
-    ax[0,1].plot(xs,g,'r.',label='gradient')
-    ax[1,0].plot(xs,l,'g.',label='laplacian')
-    ax[1,1].plot(xs,eloc,'k.',label='eloc')
+    ax[0,0].plot(rs,v,'b.',label='value')
+    ax[0,1].plot(rs,g,'r.',label='gradient')
+    ax[1,0].plot(rs,l,'g.',label='laplacian')
+    ax[1,1].plot(rs,eloc,'k.',label='eloc')
     ax[0,0].legend()
-    ax[0,0].set_xlabel('x')
+    ax[0,0].set_xlabel('r')
     ax[0,1].legend()
-    ax[0,1].set_xlabel('x')
+    ax[0,1].set_xlabel('r')
     ax[1,0].legend()
-    ax[1,0].set_xlabel('x')
+    ax[1,0].set_xlabel('r')
     ax[1,1].legend()
-    ax[1,1].set_xlabel('x')
+    ax[1,1].set_xlabel('r')
     fig.subplots_adjust(hspace=0.025)
     plt.show()
 
@@ -151,8 +158,6 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, L=10):
     print(eref)
 
     for istep in range(nstep):
-        #rdist = np.mean(np.sum((pos[0,:,:]-pos[1,:,:])**2,axis=0)**0.5) #mean distance between the two electrons
-        
         driftold = tau * wf.gradient(pos)
         _,_,elocold = PBCjell_E(pos, wf, ham)
 
@@ -308,27 +313,23 @@ if __name__ == "__main__":
 
     tproj = 128 #projection time = tau * nsteps
 
-    nconfig = 50000 #default is 5000
+    nconfig = 5000 #default is 5000
     dfs = []
     r_s = int(sys.argv[1]) #inter-electron spacing, controls density
     L = (4*np.pi*2/3)**(1/3) * r_s #sys size/length measured in a0; multiply by 2 since 2 = # of electrons
     print("L",L)
     U = 2.
-    if len(sys.argv) > 2:
-        alf = float(sys.argv[2])
-    else: alf = 0.5
-    csvname = "DMC_free_rs_" + str(r_s) + "_popsize_" + str(nconfig) + "_alpha_" + str(alf) +  ".csv"
-    wf = PBCJastrowWF(alf,L, True)
+    csvname = "PBC_rs_" + str(r_s) + "_popsize_" + str(nconfig) + ".csv"
+    wf = PBCJastrowWF(L, True, True)
     ham = Hamiltonian(U=U, L=L)
-    #Test_Jastrow(wf, ham)
-
+    #Test_Jastrow(wf, ham, 1000)
     np.random.seed(0)
     tic = time.perf_counter()
-    print("VMC_jellium_rs_" + str(r_s) + ".csv")
-   
+    print("DMC_jellium_rs_" + str(r_s) + ".csv")
+    
     for tau in [r_s/20]: #[r_s/10, r_s/20, r_s/40, r_s/80]:
         #nstep = int(tproj/tau)
-        nstep = 10000
+        nstep = 5000
         print(nstep)
         
         dfs.append(
@@ -342,7 +343,12 @@ if __name__ == "__main__":
                 nstep=nstep #orig: 10000
             )
         )
-        ''' 
+
+    '''
+    for tau in [r_s/20]: #[r_s/10, r_s/20, r_s/40, r_s/80]:
+        #nstep = int(tproj/tau)
+        nstep = 10000
+        print(nstep)
         dfs.append(
             simple_vmc(
                 wf,
@@ -353,11 +359,11 @@ if __name__ == "__main__":
                 nstep=nstep #orig: 10000
             )
         )
-       ''' 
+    '''
+    
     toc = time.perf_counter()
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
     df = pd.concat(dfs)
-    #df.to_csv("VMC_jellium_rs_" + str(r_s) + "_popsize_" + str(nconfig) + "_tproj_" + str(tproj) +  ".csv", index=False)
     df.to_csv(csvname, index=False)
-    
+     
