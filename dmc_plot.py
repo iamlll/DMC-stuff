@@ -91,9 +91,10 @@ def PlotErr(df, xvar='tau', yvar='eavg',err='err', units='ha', fit=True):
             ax.errorbar(dts, E500, yerr = err500, fmt='g.')
             ax.plot(dts, E1500, 'b.',label='nconfig = 1536')
             ax.errorbar(dts, E1500, yerr = err1500, fmt='b.')
-    
+      
         if fit == True:
-            extrap_x = np.linspace(0,0.2,30)
+            extrap_x = taus
+            #extrap_x = np.linspace(0,0.2,30)
             f1, t1 = FitData(taus,Es, yerr, extrap=extrap_x)
             ax.plot(extrap_x, f1, 'r')
             if r_s == 2:
@@ -113,6 +114,6 @@ def PlotErr(df, xvar='tau', yvar='eavg',err='err', units='ha', fit=True):
     
 if __name__ == "__main__":
     df = pd.read_csv(sys.argv[1])
-    PlotVars(df,yvars=['ke','pot','elocal']) 
+    #PlotVars(df,yvars=['ke','pot','elocal']) 
     #PlotVars(df,yvars=['ke','pot','elocal','acceptance']) 
-    #PlotErr(df)
+    PlotErr(df)

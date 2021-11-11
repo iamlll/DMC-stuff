@@ -23,7 +23,7 @@ for name in filenames:
     for tau,grp in df.groupby("tau"):
         r_s = grp['r_s'].values[0]
         blocktau=blocksize/tau
-        eloc=grp.sort_values('step')['elocal'].values
+        eloc=grp.sort_values('step')['ke'].values
         nequil = int(tequil/tau)
         nblocks=int((len(eloc)-nequil)/blocktau)
         avg,err=reblock(eloc,nequil,nblocks)
@@ -31,7 +31,7 @@ for name in filenames:
             'n_equil': nequil,
             'r_s':r_s,
             'tau':tau,
-            'eavg':avg/2, #Rydbergs PER ELECTRON
+            'eavg':avg/2, #Rydbergs PER ELECTRON, or total hartrees
             'err':err})
 
-pd.DataFrame(dfreblock).to_csv("DMC_free_reblocked_tequil_" + str(tequil) + ".csv")
+pd.DataFrame(dfreblock).to_csv("PBC_reblocked_tequil_" + str(tequil) + ".csv")

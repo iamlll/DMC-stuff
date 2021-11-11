@@ -250,7 +250,7 @@ def simple_vmc(wf, ham, tau, pos, nstep=1000, L=10):
     nblocks = int(L/blocksize)
     bins = np.linspace(0,L,nblocks)
     print(bins)
-    hist = hist_reblock(pos, bins)
+    #hist = hist_reblock(pos, bins)
     for istep in range(nstep):
         wfold=wf.value(pos)
         _,_,elocold = PBCjell_E(pos, wf, ham)
@@ -270,7 +270,7 @@ def simple_vmc(wf, ham, tau, pos, nstep=1000, L=10):
         ke,ewald,eloc = PBCjell_E(pos, wf, ham)
 
         #update histogram of electron positions (e- density)
-        hist = hist + hist_reblock(pos, bins)
+        #hist = hist + hist_reblock(pos, bins)
 
         #oldwt = np.mean(weight)
         #weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
@@ -294,13 +294,13 @@ def simple_vmc(wf, ham, tau, pos, nstep=1000, L=10):
         df["tau"].append(tau)
         df["r_s"].append(r_s)
 
-    fig2 = plt.figure()
-    axhist = fig2.add_subplot(111, title='e- density', aspect='equal')
-    xbins, ybins = np.meshgrid(bins, bins)
-    cp = axhist.pcolormesh(xbins, ybins, hist/sum(hist))
-    cbar=fig2.colorbar(cp) # add a colorbar to a plot
-    cbar.ax.set_ylabel("number")
-    plt.show()
+    #fig2 = plt.figure()
+    #axhist = fig2.add_subplot(111, title='e- density', aspect='equal')
+    #xbins, ybins = np.meshgrid(bins, bins)
+    #cp = axhist.pcolormesh(xbins, ybins, hist/sum(hist))
+    #cbar=fig2.colorbar(cp) # add a colorbar to a plot
+    #cbar.ax.set_ylabel("number")
+    #plt.show()
     return pd.DataFrame(df)
 
 #####################################
@@ -325,11 +325,10 @@ if __name__ == "__main__":
     #Test_Jastrow(wf, ham, 1000)
     np.random.seed(0)
     tic = time.perf_counter()
-    print("DMC_jellium_rs_" + str(r_s) + ".csv")
-    
-    for tau in [r_s/20]: #[r_s/10, r_s/20, r_s/40, r_s/80]:
-        #nstep = int(tproj/tau)
-        nstep = 5000
+    '''
+    for tau in [r_s/10, r_s/20, r_s/40, r_s/80]:
+        nstep = int(tproj/tau)
+        #nstep = 5000
         print(nstep)
         
         dfs.append(
@@ -343,11 +342,11 @@ if __name__ == "__main__":
                 nstep=nstep #orig: 10000
             )
         )
-
     '''
-    for tau in [r_s/20]: #[r_s/10, r_s/20, r_s/40, r_s/80]:
-        #nstep = int(tproj/tau)
-        nstep = 10000
+    
+    for tau in [r_s/10, r_s/20, r_s/40, r_s/80]:
+        nstep = int(tproj/tau)
+        #nstep = 5000
         print(nstep)
         dfs.append(
             simple_vmc(
@@ -359,7 +358,7 @@ if __name__ == "__main__":
                 nstep=nstep #orig: 10000
             )
         )
-    '''
+    csvname = 'VMC_' + csvname
     
     toc = time.perf_counter()
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
