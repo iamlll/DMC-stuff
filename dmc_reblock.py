@@ -23,14 +23,18 @@ for name in filenames:
     for tau,grp in df.groupby("tau"):
         r_s = grp['r_s'].values[0]
         blocktau=blocksize/tau
-        eloc=grp.sort_values('step')['ke'].values
+        eloc=grp.sort_values('step')['elocal'].values
         nequil = int(tequil/tau)
         nblocks=int((len(eloc)-nequil)/blocktau)
         avg,err=reblock(eloc,nequil,nblocks)
+        ke=grp.sort_values('step')['ke'].values
+        ke_avg,ke_err=reblock(ke,nequil,nblocks)
         dfreblock.append({ 
             'n_equil': nequil,
             'r_s':r_s,
             'tau':tau,
+            'ke':ke_avg/2,
+            'ke_err': ke_err,
             'eavg':avg/2, #Rydbergs PER ELECTRON, or total hartrees
             'err':err})
 

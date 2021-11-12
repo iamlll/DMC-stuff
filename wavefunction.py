@@ -71,7 +71,7 @@ class PBCJastrowWF:
   which obeys periodic boundary conditions (PBC) (unrestricted particle coordinates)
   #need to cut off u(r1,r2) at L/2 since it diverges there. Do so using a Taylor expansion
   """
-  def __init__(self, L, opt, smooth, ncells=1):
+  def __init__(self, L, opt, smooth):
     self.L = L
     self.units = 1. #convert from ha to Ry, 1 ha = 2 Ry
     if smooth == True: #Taylor expn t(r) != 0
@@ -81,8 +81,7 @@ class PBCJastrowWF:
     else: 
         self.A = 1./np.sqrt(4*np.pi*2./L**3) #keep in mind this is in units of ha!!
         self.F = np.sqrt(self.A*2)
-    self.M = ncells #number of simulation cells to sum over
-    self.smooth = smooth #determines whether to smooth out u(r) at r = L/2 by subtracting off the Taylor expn of u(r) (which we will call t(r))
+    self.smooth = smooth #determines whether to smooth out u(r) at r = L/2 by subtracting off the Taylor expn of u(r) (which we will call t(r)). Also cut off wfn past r=L/2.
     self.constrainPBC = opt #constrain electrons to the physical box size L
   #-------------------------
 
@@ -101,7 +100,8 @@ class PBCJastrowWF:
         dudr = lambda x: self.A/x * (-1./x * (1-np.exp(-x/self.F)) + 1./self.F*np.exp(-x/self.F) )
         d2udr2 = lambda x: self.A* (2/x**3 *(1-np.exp(-x/self.F)) - np.exp(-x/self.F)/(x*self.F) * (2/x + 1./self.F) )
         t = u(self.L/2) + dudr(self.L/2) * (eedist-self.L/2) + 0.5*d2udr2(self.L/2) * (eedist - self.L/2)**2
-        return np.exp(-self.units* (u(eedist)-t) )
+        val = np.where(eedist > self.L/2, 0., u(eedist)-t)
+        return np.exp(-self.units* val)
         #return u(eedist), t, u(eedist)-t #just use for Test_Jastrow fxn comparing smoothed wfn @ r=L/2 with unsmoothed/original
     else: return np.exp(-self.units*u(eedist))
 
@@ -116,6 +116,7 @@ class PBCJastrowWF:
     dx = dx - self.L*np.rint(dx/self.L)
 
     eedist=(np.sum(dx**2,axis=0)**0.5)[np.newaxis,:] #newaxis turns the 1D array -> 2D array and copies the 1D array values over to the new axis
+    
     # Partial derivatives of electron-electron distance, i.e. Jacobian
     #Outer product: (a0 * (b0 b1 b2) = (a0b0 a0b1 a0b2
     #                a1)                a1b0 a1b1 a1b2)
@@ -125,7 +126,8 @@ class PBCJastrowWF:
         dudr = lambda x: self.A/x * (-1./x * (1-np.exp(-x/self.F)) + 1./self.F*np.exp(-x/self.F) )
         d2udr2 = lambda x: self.A* (2/x**3 *(1-np.exp(-x/self.F)) - np.exp(-x/self.F)/(x*self.F) * (2/x + 1./self.F) )
         gradt = dudr(self.L/2) * dx/eedist + d2udr2(self.L/2) * (eedist - self.L/2) * dx/eedist
-        pdee=np.outer([1,-1],-self.units*(grad-gradt) ).reshape(pos.shape)
+        val = np.where(eedist[0] > self.L/2, 0., grad-gradt)
+        pdee=np.outer([1,-1],-self.units*val).reshape(pos.shape)
     else:
         pdee=np.outer([1,-1],-self.units*grad).reshape(pos.shape)
     
@@ -175,7 +177,7 @@ class PBCJastrowWF:
         d2udr2 = lambda x: self.A* (2/x**3 *(1-np.exp(-x/self.F)) - np.exp(-x/self.F)/(x*self.F) * (2/x + 1./self.F) )
         nabla2t = 2/eedist*dudr(self.L/2) + d2udr2(self.L/2) * (3-self.L/eedist)
         gradt = dudr(self.L/2) + d2udr2(self.L/2) * (eedist - self.L/2) 
-        lap_ee = -(nabla2u - nabla2t - (grad-gradt)**2)
+        lap_ee = np.where(eedist > self.L/2, 0., -(nabla2u - nabla2t - (grad-gradt)**2))
     else: lap_ee = -(nabla2u - grad**2)
     return np.array([lap_ee,lap_ee])
   #-------------------------

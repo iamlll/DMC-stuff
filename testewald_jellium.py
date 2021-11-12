@@ -42,11 +42,11 @@ def Test_Jastrow(wf, ham, nconfig=5):
     
     randL = (wf.L)*np.random.rand(nconfig)
     #comput vgl, eloc along the x axis only 
-    #initpos[1,0,:] = randL
+    initpos[1,0,:] = randL
     #Now compute same quantities along the line y=x
-    ys = randL/np.sqrt(2)
-    initpos[1,0,:] = ys
-    initpos[1,1,:] = ys #set both x and y coord of elec 1 to same coordinate: y=x
+    #ys = randL/np.sqrt(2)
+    #initpos[1,0,:] = ys
+    #initpos[1,1,:] = ys #set both x and y coord of elec 1 to same coordinate: y=x
     #plot with |r1-r2| = r as indep variable
     rs = np.sqrt(np.sum((initpos[0,:,:]-initpos[1,:,:])**2,axis=0))
     '''
@@ -73,6 +73,10 @@ def Test_Jastrow(wf, ham, nconfig=5):
     ax[0,1].plot(rs,g,'r.',label='gradient')
     ax[1,0].plot(rs,l,'g.',label='laplacian')
     ax[1,1].plot(rs,eloc,'k.',label='eloc')
+    ax[0,0].axvline(L/2)
+    ax[0,1].axvline(L/2)
+    ax[1,1].axvline(L/2)
+    ax[1,0].axvline(L/2)
     ax[0,0].legend()
     ax[0,0].set_xlabel('r')
     ax[0,1].legend()
@@ -342,9 +346,10 @@ if __name__ == "__main__":
                 nstep=nstep #orig: 10000
             )
         )
+    csvname = 'DMC_' + csvname
     '''
-    
-    for tau in [r_s/10, r_s/20, r_s/40, r_s/80]:
+     
+    for tau in [r_s/10,r_s/20, r_s/40,r_s/80]:
         nstep = int(tproj/tau)
         #nstep = 5000
         print(nstep)
@@ -365,4 +370,4 @@ if __name__ == "__main__":
 
     df = pd.concat(dfs)
     df.to_csv(csvname, index=False)
-     
+    

@@ -49,7 +49,7 @@ def FitData(xvals, yvals, yerr=[], fit='lin', extrap=[]):
     textstr = '\n'.join((
         r'$E(\tau) = a\tau + b$',
         r'$a=%.4f \pm %.4f$' % (a, aerr),
-        r'$b=%.4f \pm %.4f$' % (b, berr)
+        r'$b=%.5f \pm %.5f$' % (b, berr)
         ))
 
     print(r'$b=%.4f \pm %.4f$' % (b, berr))
@@ -103,7 +103,7 @@ def PlotErr(df, xvar='tau', yvar='eavg',err='err', units='ha', fit=True):
                 f3, t3 = FitData(dts,E1500, err1500, extrap=extrap_x)
                 ax.plot(extrap_x, f3, 'b')
         
-            ax.text(0.05, 0.75, t1, transform=ax.transAxes, fontsize=14, verticalalignment='top')
+            ax.text(0.05, 0.5, t1, transform=ax.transAxes, fontsize=14, verticalalignment='top')
 
         ax.set_xlabel('$\\tau$ (1/ha)')
         ax.set_ylabel('$E$ (ha)')
@@ -116,4 +116,5 @@ if __name__ == "__main__":
     df = pd.read_csv(sys.argv[1])
     #PlotVars(df,yvars=['ke','pot','elocal']) 
     #PlotVars(df,yvars=['ke','pot','elocal','acceptance']) 
-    PlotErr(df)
+    PlotErr(df,yvar='eavg',err='err')
+    PlotErr(df,yvar='ke',err='ke_err')
