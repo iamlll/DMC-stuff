@@ -54,9 +54,9 @@ def main():
     a = axes,
     unit='B',  # B = units of Bohr radii
   )
-  # ee Jastrow (only bcoeff, no acoeff for ei)
+  # ee Jastrow (only bcoeff for ee, no acoeff for ei)
   wf, to_opt = pyqmc.default_jastrow(cell, ion_cusp=[], na=0)
-  wf.parameters['bcoeff'] = bcoeff
+  wf.parameters['bcoeff'] = bcoeff #given by step1_opt.py
   # initialize electrons uniformly inside the box
   configs = PeriodicConfigs(pos, axes)
   # use hacked energy in estimator

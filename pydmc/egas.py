@@ -2,7 +2,7 @@
 import numpy as np
 from pyqmc.ewald import Ewald
 from pyqmc.energy import kinetic
-
+#copied from pyqmc class, set EI & II = 0
 class EnergyAccumulator:
     def __init__(self, mol, threshold=10, **kwargs):
         self.mol = mol

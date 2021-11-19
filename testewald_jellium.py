@@ -329,10 +329,10 @@ if __name__ == "__main__":
     #Test_Jastrow(wf, ham, 1000)
     np.random.seed(0)
     tic = time.perf_counter()
-    '''
-    for tau in [r_s/10, r_s/20, r_s/40, r_s/80]:
+    ''' 
+    #for tau in [r_s/10, r_s/20, r_s/40, r_s/80]:
+    for tau in [r_s/10,r_s/20]:
         nstep = int(tproj/tau)
-        #nstep = 5000
         print(nstep)
         
         dfs.append(
@@ -351,7 +351,6 @@ if __name__ == "__main__":
      
     for tau in [r_s/10,r_s/20, r_s/40,r_s/80]:
         nstep = int(tproj/tau)
-        #nstep = 5000
         print(nstep)
         dfs.append(
             simple_vmc(
@@ -370,4 +369,4 @@ if __name__ == "__main__":
 
     df = pd.concat(dfs)
     df.to_csv(csvname, index=False)
-    
+     
