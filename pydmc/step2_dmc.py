@@ -6,6 +6,8 @@ from pyscf.pbc import gto as pbcgto
 import pyqmc
 from pyqmc.coord import PeriodicConfigs 
 from egas import EnergyAccumulator
+from pyqmc.wftools import generate_jastrow
+from pyqmc.dmc import rundmc
 
 def main():
   from argparse import ArgumentParser
@@ -55,13 +57,13 @@ def main():
     unit='B',  # B = units of Bohr radii
   )
   # ee Jastrow (only bcoeff for ee, no acoeff for ei)
-  wf, to_opt = pyqmc.default_jastrow(cell, ion_cusp=[], na=0)
-  wf.parameters['bcoeff'] = bcoeff #given by step1_opt.py
+  wf, to_opt = generate_jastrow(cell, ion_cusp=[], na=0)
+  wf.parameters['bcoeff'] = bcoeff  # given by step1_opt.py
   # initialize electrons uniformly inside the box
   configs = PeriodicConfigs(pos, axes)
   # use hacked energy in estimator
   accus = {"energy": EnergyAccumulator(cell)}
-  data, confs, wts = pyqmc.rundmc(
+  data, confs, wts = rundmc(
     wf,
     configs,
     accumulators=accus,

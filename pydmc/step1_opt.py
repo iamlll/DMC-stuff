@@ -4,6 +4,8 @@ from pyscf.pbc import gto as pbcgto
 import pyqmc
 from pyqmc.coord import PeriodicConfigs 
 from pyqmc.accumulators import PGradTransform, LinearTransform
+from pyqmc.wftools import generate_jastrow
+from pyqmc.linemin import line_minimization
 from egas import EnergyAccumulator
 
 def main():
@@ -28,26 +30,24 @@ def main():
     a = axes,
     unit='B',  # B = units of Bohr radii
   )
-  # ee Jastrow (only bcoeff, no acoeff for ei)
-  wf, to_opt = pyqmc.default_jastrow(cell, ion_cusp=[], na=0)
+  # ee Jastrow (only bcoeff for ee, no acoeff for ei)
+  wf, to_opt = generate_jastrow(cell, ion_cusp=[], na=0)
   # initialize electrons uniformly inside the box
   configs = PeriodicConfigs(pos, axes)
   # use hacked energy in gradient estimator
+  acc = EnergyAccumulator(cell)
   pgacc = PGradTransform(
-    EnergyAccumulator(cell),
+    acc,
     LinearTransform(wf.parameters, to_opt)
   )
   # do Jastrow optimization
-  pyqmc.line_minimization(
+  line_minimization(
     wf,
     configs,
     pgacc,
     verbose=True,
     hdf_file='opt-rs%d.h5' % rs,
-    warmup=100,
     max_iterations=10,
-    #tstep=tstep,
-    #nblocks=nblocks,
   )
 
 if __name__ == '__main__':
