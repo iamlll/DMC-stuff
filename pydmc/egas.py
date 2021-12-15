@@ -23,6 +23,7 @@ class EnergyAccumulator:
         #ecp_val = eval_ecp.ecp(self.mol, configs, wf, self.threshold)
         ecp_val = np.zeros(len(configs.configs))
         ke, grad2 = energy.kinetic(configs, wf)
+        ke = ke
         return {
             "ke": ke,
             "ee": ee,

@@ -19,10 +19,10 @@ def gradient(configs,wf):
 
     '''
     nconf, nelec, ndim = configs.configs.shape
-    gradarr = np.zeros((nelec,ndim,nconf))
+    gradarr = np.zeros((nconf,nelec,ndim))
     for e in range(nelec):
-        grad = wf.gradient(e, configs.electron(e))
-        gradarr[e,:,:] = grad
+        grad = np.swapaxes(wf.gradient(e, configs.electron(e)),0,1) #nconf x ndim array
+        gradarr[:,e,:] = grad
     return gradarr
 
 def laplacian(configs, wf):
@@ -72,7 +72,7 @@ def plotVGL(filename,rs=4):
     '''compute value, gradient, laplacian for PyQMC JastrowSpin wf'''
     wf, accumulator,config = GenerateJastrow(filename,rs)
     val = value(wf)
-    g = gradient(config,wf)[0,0,:] #pull out positive x derivative
+    g = gradient(config,wf)[:,0,0] #pull out positive x derivative
     lap = laplacian(config, wf)[0]
     print(g.shape)
     '''

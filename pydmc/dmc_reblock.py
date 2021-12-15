@@ -19,7 +19,6 @@ dfreblock=[]
 
 for name in filenames:
     df=pd.read_csv(name)
-
     for tau,grp in df.groupby("tau"):
         r_s = grp['r_s'].values[0]
         blocktau=blocksize/tau
@@ -27,15 +26,11 @@ for name in filenames:
         nequil = int(tequil/tau)
         nblocks=int((len(eloc)-nequil)/blocktau)
         avg,err=reblock(eloc,nequil,nblocks)
-        ke=grp.sort_values('step')['ke'].values
-        ke_avg,ke_err=reblock(ke,nequil,nblocks)
         dfreblock.append({ 
             'n_equil': nequil,
             'r_s':r_s,
             'tau':tau,
-            'ke':ke_avg/2,
-            'ke_err': ke_err,
-            'eavg':avg/2, #Rydbergs PER ELECTRON, or total hartrees
+            'eavg':avg, #in hartrees, I believe
             'err':err})
 
-pd.DataFrame(dfreblock).to_csv("PBC_reblocked_tequil_" + str(tequil) + ".csv")
+pd.DataFrame(dfreblock).to_csv("pyQMC_reblocked_tequil_" + str(tequil) + ".csv")
