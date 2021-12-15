@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import numpy as np
 import pandas as pd
-from qharv.reel import scalar_dat
 
 def main():
   from argparse import ArgumentParser
