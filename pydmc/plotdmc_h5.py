@@ -7,7 +7,7 @@ from scipy.optimize import curve_fit
 tequil = 20 #equilibration time = timestep * (# steps thrown out)
 blocksize=1.0 # in Hartree-1
 
-def reblocked(h5,colnames=['energyke','energytotal'],tequil=20,blocksize=1.0):
+def reblocked(h5,colnames=['energyke','energytotal'],tequil=10,blocksize=1.0):
     def reblock(eloc,warmup,nblocks):
         elocblock=np.array_split(eloc[warmup:],nblocks) #throw out "warmup" number of equilibration steps and split resulting local energy array into nblocks subarrays
         blockenergy=[np.mean(x) for x in elocblock]
@@ -33,20 +33,20 @@ def main(colnames=['energyke','energytotal']):
   err = np.zeros((len(colnames),len(filenames),))
   for i,f in enumerate(filenames):
     h5 = h5py.File(f,'r')
-    
-    trace = h5['energytotal']
+    print(f)
+    #trace = h5['energytotal']
     tstep = h5['tstep'][0]
-    tequil = 10
-    tcorr = 1
-    nskip = int(round(tequil/tstep))
-    nevery = int(round(tcorr/tstep))
-    trace1 = trace[nskip::nevery]
-    ym = np.mean(trace1)
-    ye = np.std(trace1, ddof=1)
+    #tequil = 10
+    #tcorr = 1
+    #nskip = int(round(tequil/tstep))
+    #nevery = int(round(tcorr/tstep))
+    #trace1 = trace[nskip::nevery]
+    #ym = np.mean(trace1)
+    #ye = np.std(trace1, ddof=1)
     #print(ym)
     #print(ye)
     
-    #tstep, ym, ye = reblocked(h5,colnames) 
+    tstep, ym, ye = reblocked(h5,colnames) 
     energies[:,i] = ym
     err[:,i] = ye
     taus[i] = tstep

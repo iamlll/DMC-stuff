@@ -77,39 +77,52 @@ def PlotErr(df, xvar='tau', yvar='eavg',err='err', units='ha', fit=True):
         print(taus) 
         print(Es)
         print(yerr)
-        ax.plot(taus, Es, 'r.',label='nconfig = ' + str(nconfig))
+        ax.plot(taus, Es, 'r.',label='$r_s = $' + str(r_s) + ', nconfig = ' + str(nconfig))
         ax.errorbar(taus, Es, yerr = yerr, fmt='r.')
         
-        if r_s == 2:
-            #Paul's results using uniform WF, r_s=2
-            #576 walkers
-            dts = [0.2, 0.1, 0.05]
-            E500 = [-0.717854, -0.717702, -0.714989]
-            err500 = [0.000739, 0.000845, 0.000492]
-            #1536 walkers
-            E1500 = [-0.717587, -0.717096, -0.716748]
-            err1500 = [0.000425, 0.000419, 0.000465]
+        if r_s == 4:
+            dts = [0.1,0.2,0.4]
+            E1k = [-0.365,-0.365,-0.364]
+            err1k = [0.003,0.002,0.0019]
 
-            ax.plot(dts, E500, 'g.',label='nconfig = 576')
-            ax.errorbar(dts, E500, yerr = err500, fmt='g.')
-            ax.plot(dts, E1500, 'b.',label='nconfig = 1536')
-            ax.errorbar(dts, E1500, yerr = err1500, fmt='b.')
+            ax.plot(dts, E1k, 'g.',label='PyQMC driver, nconfig = 1000')
+            ax.errorbar(dts, E1k, yerr = err1k, fmt='g.')
+        elif r_s == 2:
+            dts = [0.1,0.2,0.4]
+            E1k = [-0.715,-0.717,-0.717]
+            err1k = [0.004,0.004,0.003]
+
+            ax.plot(dts, E1k, 'g.',label='PyQMC driver, nconfig = 1000')
+            ax.errorbar(dts, E1k, yerr = err1k, fmt='g.')
+        elif r_s == 1:
+            dts = [0.1,0.2,0.4]
+            E1k = [-1.413,-1.419,-1.418]
+            err1k = [0.008,0.005,0.006]
+
+            ax.plot(dts, E1k, 'g.',label='PyQMC driver, nconfig = 1000')
+            ax.errorbar(dts, E1k, yerr = err1k, fmt='g.')
+        elif r_s == 8:
+            dts = [0.1,0.2,0.4]
+            E1k = [-0.1865,-0.1864,-0.1862]
+            err1k = [0.0017,0.0019,0.0014]
+
+            ax.plot(dts, E1k, 'g.',label='PyQMC driver, nconfig = 1000')
+            ax.errorbar(dts, E1k, yerr = err1k, fmt='g.')
       
         if fit == True:
             extrap_x = taus
             #extrap_x = np.linspace(0,0.2,30)
             f1, t1 = FitData(taus,Es, yerr, extrap=extrap_x)
             ax.plot(extrap_x, f1, 'r')
-            if r_s == 2:
-                f2, t2 = FitData(dts,E500, err500,extrap=extrap_x)
+            if r_s == 4 or r_s == 1 or r_s == 2 or r_s == 8:
+                f2, t2 = FitData(dts,E1k, err1k,extrap=extrap_x)
                 ax.plot(extrap_x, f2, 'g')
-                f3, t3 = FitData(dts,E1500, err1500, extrap=extrap_x)
-                ax.plot(extrap_x, f3, 'b')
         
             ax.text(0.05, 0.3, t1, transform=ax.transAxes, fontsize=14, verticalalignment='top')
 
         ax.set_xlabel('$\\tau$ (1/ha)')
         ax.set_ylabel('$E$ (ha)')
+       
         ax.legend()
         plt.tight_layout()
         plt.show()

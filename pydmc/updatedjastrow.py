@@ -15,10 +15,11 @@ import pyqmc.gpu as gpu
 import copy
 
 class UpdatedJastrow(jastrowspin.JastrowSpin):
-    def __init__(self,rs):
+    def __init__(self,rs,nconfig=512):
         self.rs = rs
         self.nelec = 2
         self.ndim = 3
+        self.nconfig = nconfig
         self.L = (4*np.pi/3*self.nelec)**(1/3) * float(self.rs)  # sys. size/length measured in a0; multiply by 2 since 2 = # of electrons 
 
         axes = self.L*np.eye(self.ndim)
@@ -41,7 +42,6 @@ class UpdatedJastrow(jastrowspin.JastrowSpin):
         filename = 'opt-rs' + str(self.rs) + '.h5'
         with h5py.File(filename, 'r') as f:
             bcoeff = f['wf']['bcoeff'][()]
-            self.nconfig = f['nconfig'][0]
 
         self.parameters['bcoeff'] = bcoeff  # given by step1_opt.py
         configs = PeriodicConfigs(initpos, self._mol.a) #(nconf, nelec, ndim)
