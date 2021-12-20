@@ -18,7 +18,7 @@ def reblocked(h5,colnames=['energyke','energytotal'],tequil=10,blocksize=1.0):
     blocktau=blocksize/tau
     nequil = int(tequil/tau)
     for i,name in enumerate(colnames):
-        data = np.sort(h5[name])
+        data = h5[name]
         nblocks=int((len(data)-nequil)/blocktau)
         avg,err=reblock(data,nequil,nblocks)
         qtys[i] = avg

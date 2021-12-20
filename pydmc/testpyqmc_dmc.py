@@ -153,88 +153,6 @@ def simple_dmc(wf, ham, tau, pos, popstep=1, nstep=1000, L=10):
         df['popstep'].append(popstep)
     return pd.DataFrame(df)
 
-def simple_vmc(wf, ham, tau, pos, nstep=1000, L=10):
-    """
-    Force every walker's weight to be 1.0 at every step, and never create/destroy walkers (i.e. no drift, no weights). Uses Metropolis algorithm to accept/reject steps and ensure MC has |psi_T|^2 as its equilibrium distribution.
-
-    In practice, the following two steps should be sufficient for VMC:
-    1. keep diffusion term so that electrons move from one step to another R -> R'
-    2. use Metropolis criteria to accept/reject according to |Psi_T|^2(R')/|Psi_T|^2(R)
-    No weights are needed (a.k.a. set weight=1 for all walkers at every step)
-
-    Inputs:
-        L: box length (units of a0)
- 
-    Outputs:
-        A Pandas dataframe with each 
-
-    """
-    df = {
-        "step": [],
-        "r_s": [],
-        "tau": [],
-        "elocal": [],
-        "ke": [],
-        "pot": [],
-        "acceptance": [],
-    }
-    nconfig = pos.shape[0]
-    weight = np.ones(nconfig)
-
-    _,_,eloc = PBCjell_E(pos, wf, ham)
-    eref = np.mean(eloc)
-    print(eref)
-
-    blocksize = 1 #units of Bohr radius a0
-    nblocks = int(L/blocksize)
-    bins = np.linspace(0,L,nblocks)
-    print(bins)
-    #hist = hist_reblock(pos, bins)
-    for istep in range(nstep):
-        wfold=wf.value(pos)
-        _,_,elocold = PBCjell_E(pos, wf, ham)
-        # propose a move
-        gauss_move_old = np.random.randn(*pos.shape)
-        posnew=pos + np.sqrt(tau)*gauss_move_old
-
-        wfnew=wf.value(posnew)
-        # calculate Metropolis-Rosenbluth-Teller acceptance probability
-        prob = wfnew**2/wfold**2 # for reversible moves
-        # get indices of accepted moves
-        acc_idx = (prob + np.random.random_sample(nconfig) > 1.0)
-        # update stale stored values for accepted configurations
-        pos[:,:,acc_idx] = posnew[:,:,acc_idx]
-        wfold[acc_idx] = wfnew[acc_idx]
-        acceptance = np.mean(acc_idx) #avg acceptance rate at each step (NOT total, would have to additionally divide by nstep)
-        ke,ewald,eloc = PBCjell_E(pos, wf, ham)
-
-        #update histogram of electron positions (e- density)
-        #hist = hist + hist_reblock(pos, bins)
-
-        #oldwt = np.mean(weight)
-        #weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
-
-        if istep % 10 == 0:
-            print(
-                "iteration",
-                istep,
-                "ke", np.mean(ke), "ewald", np.mean(ewald),
-                "average energy",
-                np.mean(eloc),
-                "acceptance",acceptance
-            )
-        #weight.fill(1.)
-
-        df["step"].append(istep)
-        df["pot"].append(np.mean(ewald))
-        df["ke"].append(np.mean(ke))
-        df["elocal"].append(np.mean(eloc))
-        df["acceptance"].append(acceptance)
-        df["tau"].append(tau)
-        df["r_s"].append(r_s)
-
-    return pd.DataFrame(df)
-
 #####################################
 
 if __name__ == "__main__":
@@ -275,23 +193,6 @@ if __name__ == "__main__":
             )
         )
     csvname = 'DMC_' + csvname
-    
-    ''' 
-    for tau in [r_s/10,r_s/20, r_s/40,r_s/80]:
-        nstep = int(tproj/tau)
-        print(nstep)
-        dfs.append(
-            simple_vmc(
-                wf,
-                ham,
-                pos= L* np.random.rand(2, 3, nconfig), 
-                L=L,
-                tau=tau,
-                nstep=nstep #orig: 10000
-            )
-        )
-    csvname = 'VMC_' + csvname
-    '''
     toc = time.perf_counter()
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 

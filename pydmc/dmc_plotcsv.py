@@ -13,15 +13,28 @@ def PlotVars(df, xvar=['step'], yvars=['elocal']):
     '''
     df["step"] += 1
     taus = np.unique(df['tau'].values)
+    fig,ax = plt.subplots(2,1,figsize=(6,4.5),sharex='row')
+    r_s = df['r_s'].values[0]
+    print(r_s)
     for tau in taus:
         df2 = df[df['tau']==tau]
         print(df.keys())
+        steps = df2[xvar].values
+        Elocals = df2[yvars].values
+        eloc = np.array([complex(val) for val in Elocals]) 
+        ax[0].plot(steps,eloc.real,'k',label='real')
+        ax[1].plot(steps,eloc.imag,'r',label='imag')
+        plt.title('$r_s = $' + str(r_s))
         #g=sns.PairGrid(df2,x_vars=xvar, y_vars=yvars,hue='popstep')
-        g=sns.PairGrid(df2,x_vars=xvar, y_vars=yvars)
+        #g=sns.PairGrid(df2,x_vars=xvar, y_vars=yvars)
         nequil = int(t_equil/tau)
-        plt.gca().axvline(nequil) #plot how many steps thrown out during reblocking procedure
-        g.map(plt.scatter,s=1)
-        g.add_legend()
+        ax[0].axvline(nequil) #plot how many steps thrown out during reblocking procedure
+        ax[1].axvline(nequil) #plot how many steps thrown out during reblocking procedure
+        ax[0].legend()
+        ax[1].legend()
+        ax[1].set_xlabel('time step')
+        ax[0].set_ylabel('Elocal')
+        ax[1].set_ylabel('Elocal')
         plt.tight_layout()
         plt.show()
     #plt.savefig("traces.pdf", bbox_inches='tight')
@@ -158,4 +171,5 @@ def CompareExtrapKE():
 
 if __name__ == "__main__":
     df = pd.read_csv(sys.argv[1])
-    PlotErr(df,yvar='eavg',err='err')
+    #PlotErr(df,yvar='eavg',err='err')
+    PlotVars(df)
