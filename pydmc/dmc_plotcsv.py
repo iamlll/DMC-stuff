@@ -11,7 +11,7 @@ def PlotVars(df, xvar=['step'], yvars=['elocal']):
     '''
     Plot variables from the direct DMC results. If want to plot multiple y variables, input should be as an array
     '''
-    df["step"] += 1
+    #df["step"] += 1
     taus = np.unique(df['tau'].values)
     fig,ax = plt.subplots(2,1,figsize=(6,4.5),sharex='row')
     r_s = df['r_s'].values[0]
@@ -38,6 +38,51 @@ def PlotVars(df, xvar=['step'], yvars=['elocal']):
         plt.tight_layout()
         plt.show()
     #plt.savefig("traces.pdf", bbox_inches='tight')
+
+def RandTrials(filenames):
+    '''
+    Find avg energy + variance as a function of time step for a single r_s value(generated multiple sims using different random seeds, and want to determine when the calculation has converged wrt tau + what that converged answer is)
+    Then plot this averaged answer
+    '''
+    def reblock(eloc,warmup,nblocks):
+        elocblock=np.array_split(eloc[warmup:],nblocks) #throw out "warmup" number of equilibration steps and split resulting local energy array into nblocks subarrays
+        print(tau,len(elocblock))
+        blockenergy=[np.mean(x) for x in elocblock]
+        return np.mean(blockenergy),np.std(blockenergy)/np.sqrt(nblocks)
+    df0 = pd.read_csv(filenames[0])
+    steps = df0['step'].values
+    nsteps = len(steps)
+    print(nsteps)
+    r_s = df0['r_s'].values[0]
+    tau = df0['tau'].values[0]
+    Elocs = np.empty((len(filenames),nsteps),dtype=complex)
+    for i,name in enumerate(filenames):
+        df=pd.read_csv(name)
+        for tau,grp in df.groupby("tau"):
+            eloc=grp.sort_values('step')['elocal'].values
+            Elocs[i,:] = np.array([complex(val) for val in eloc]) 
+            #nequil = int(t_equil/tau)
+            #nblocks=int((len(eloc)-nequil)/blocktau)
+            #avg,err=reblock(eloc,nequil,nblocks)
+    avgE = np.mean(Elocs,axis=0)
+    SD_real = np.std(Elocs.real,axis=0)/np.sqrt(len(filenames)-1)
+    SD_imag = np.std(Elocs.imag,axis=0)/np.sqrt(len(filenames)-1) #numpy only returns a real value for standard deviation
+    print(np.mean(avgE[150:]))
+    print(np.mean(SD_real[150:]))
+    print(np.mean(SD_imag[150:]))
+    fig,ax = plt.subplots(2,1,figsize=(6,4.5),sharex='row')
+    ax[0].errorbar(steps,avgE.real,yerr=SD_real,label='real')
+    ax[0].plot(steps,avgE.real,'r',zorder=10)
+    ax[1].errorbar(steps,avgE.imag,yerr=SD_imag,label='imag')
+    ax[1].plot(steps,avgE.imag,'r',zorder=10)
+    ax[0].legend()
+    ax[1].legend()
+    ax[1].set_xlabel('time step')
+    ax[0].set_ylabel('Re[Elocal]')
+    ax[1].set_ylabel('Im[Elocal]')
+    plt.title('$r_s = $' + str(r_s) + ', $\\tau = $' + str(tau))
+    plt.tight_layout()
+    plt.show()
 
 def FitData(xvals, yvals, yerr=[], fit='lin', extrap=[]):
     def fitlinear(x,a,b):
@@ -170,6 +215,7 @@ def CompareExtrapKE():
     plt.show()    
 
 if __name__ == "__main__":
-    df = pd.read_csv(sys.argv[1])
+    #df = pd.read_csv(sys.argv[1])
     #PlotErr(df,yvar='eavg',err='err')
-    PlotVars(df)
+    #PlotVars(df)
+    RandTrials(sys.argv[1:])

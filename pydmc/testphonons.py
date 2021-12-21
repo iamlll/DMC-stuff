@@ -342,13 +342,14 @@ if __name__ == "__main__":
     L = (4*np.pi*2/3)**(1/3) * r_s #sys size/length measured in a0; multiply by 2 since 2 = # of electrons
     print("L",L)
     N = 10 #number allowed momenta
-    csvname = "phonons_rs_" + str(r_s) + "_popsize_" + str(nconfig) + ".csv"
     wf = UpdatedJastrow(r_s,nconfig=nconfig)
     g = 1./l**2*np.sqrt(np.pi*alpha*l/wf.L**3) #DOS, all lengths in units of Bohr radii a0
+    seed = int(sys.argv[2])
+    csvname = "phonons_rs_" + str(r_s) + "_popsize_" + str(nconfig) + "_seed_" + str(seed) + ".csv"
 
-    np.random.seed(0)
+    np.random.seed(seed)
     tic = time.perf_counter()
-    ''' 
+     
     #for tau in [r_s/20, r_s/40, r_s/80]:
     for tau in [r_s/20]:
         nstep = int(tproj/tau)
@@ -367,8 +368,8 @@ if __name__ == "__main__":
             )
         )
     csvname = 'DMC_with_' + csvname
-    '''   
-     
+       
+    ''' 
     for tau in [r_s/20]:
         nstep = int(tproj/tau)
         print(nstep)
@@ -384,7 +385,7 @@ if __name__ == "__main__":
             )
         )
     csvname = 'VMC_with_' + csvname
-    
+    '''    
     toc = time.perf_counter()
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
