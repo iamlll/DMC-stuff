@@ -202,6 +202,7 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
   Outputs:
   A Pandas dataframe with each 
   """
+    from time import time
     df = {
         "step": [],
         "nconfig": [],
@@ -260,8 +261,19 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
     eref = np.mean(eloc)
     print(eref)
 
+    timers = dict(
+      drift_diffusion = 0.0,
+      mixed_estimator = 0.0,
+      gth_estimator = 0.0,
+      update_coherent = 0.0,
+      branch = 0.0,
+    )
     for istep in range(nstep):
+        tick = time()
         elocold = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
+        tock = time()
+        timers['mixed_estimator'] += tock - tick
+        tick = time()
         if elec == True:
             driftold = tau * wf.grad(pos)
 
@@ -273,12 +285,25 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
             imove = acc > np.random.random(nconfig)
             pos[imove,:, :] = posnew[imove,:, :]
             acc_ratio = np.sum(imove) / nconfig
+        tock = time()
+        timers['drift_diffusion'] += tock - tick
 
         #update coherent state amplitudes
+        tick = time()
         rho, f2p = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy,phonon)
+        tock = time()
+        timers['update_coherent'] += tock - tick
+
+        #compute observables
+        tick = time()
         ke_coul = GetEnergy(wf,configs,pos,'total') #syncs internal wf configs object + driver configs object
         eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
+        tock = time()
+        timers['mixed_estimator'] += tock - tick
+        tick = time()
         egth,_ = gth_estimator(pos, wf, configs, g,tau, h_ks, f_ks, ks, kcopy,phonon)
+        tock = time()
+        timers['gth_estimator'] += tock - tick
         #syncs internal wf configs object + driver configs object
         f_ks = f2p
         n_ks = f_ks* np.conj(h_ks) #n_k = hw a*a; momentum distribution of equilibrium phonons -- want to plot this as a function of |k|
@@ -287,12 +312,15 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
         weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
         
         # Branch
+        tick = time()
         wtot = np.sum(weight)
         wavg = wtot / nconfig
         if elec == True:
             if istep % popstep == 0:
                 pos, weight = popcontrol(pos, weight, wavg, wtot)
                 wf.update(configs,pos)
+        tock = time()
+        timers['branch'] += tock - tick
 
         # Update the reference energy
         Delta = -1./tau* np.log(wavg/oldwt) #need to normalize <w_{n+1}>/<w_n>
@@ -338,6 +366,10 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
         df['n_ks'].append(np.mean(n_ks,axis=1)) #avg over all walkers
         df['ks'].append(kmag)
 
+    print('Timings:')
+    for key, val in timers.items():
+      line = '%16s %.4f' % (key, val)
+      print(line)
     plotamps(kcopy,n_ks, N)
     return pd.DataFrame(df)
 
