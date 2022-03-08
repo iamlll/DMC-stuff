@@ -29,9 +29,10 @@ l = np.sqrt(hbar/(2*m*w))/ a0 #phonon length in units of the Bohr radius
 #####################################
 '''phonon energy calculations'''
 
-def gth_estimator(pos, wf,configs,g, tau, h_ks,f_ks, ks, kcopy,phonon=True):
+def gth_estimator(ke_coul, pos, wf,configs,g, tau, h_ks,f_ks, ks, kcopy,phonon=True):
     """ calculate kinetic + Coulomb + electron-phonon and phonon energies in growth estimator formulation
     Input:
+      ke_coul: kinetic+Coulomb energy for its shape
       pos: electron positions (nconf,nelec,ndim) 
       wf: wavefunction
       ham: hamiltonian
@@ -43,7 +44,6 @@ def gth_estimator(pos, wf,configs,g, tau, h_ks,f_ks, ks, kcopy,phonon=True):
       pot: Coulomb energy - a constant for fixed electrons
       ph: Phonon + electron-phonon (local) energies
     """
-    ke_coul = GetEnergy(wf,configs,pos,'total')
     if phonon == True:
         #swap 1st and 3rd axes in pos matrix so ks dot r1 = (Nx3) dot (3 x nconf) = N x nconf matrix 
         swappos = np.swapaxes(pos,0,2)
@@ -91,11 +91,12 @@ def update_f_ks(pos, wf,g, tau, h_ks,f_ks, ks, kcopy,phonon=True):
         newf_ks = np.zeros(f_ks.shape)
     return rho, newf_ks
 
-def mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kmag,phonon=True):
+def mixed_estimator(ke_coul, pos, wf, configs, rho, g, h_ks, f_ks, kmag,phonon=True):
     '''
     Calculate energy (in ha) using the mixed estimator form E_0 = <psi_T| H |phi>, psi_T & phi are coherent states
     Also syncs DMC driver configs with internal wf electron configurations (GetEnergy)
     Input:
+        ke_coul: kinetic+Coulomb energy for its shape
         pos: electron positions (nelec, ndim, nconfigs)
         rho: electron density (eikr1 + eikr2)
         kmag: k-vector magnitudes, matrix size (len(ks), nconfigs)
@@ -104,7 +105,6 @@ def mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kmag,phonon=True):
     Output:
         total energy
     '''
-    ke_coul = GetEnergy(wf,configs,pos,'total')
     #Find electron phonon energy
     if phonon == True:
         H_eph = 1j* g*np.sum( (-f_ks * rho + np.conj(h_ks) *np.conj(rho))/kmag , axis=0) #sum over all k values; f/kmag = (# ks) x nconfigs matrix. See eqn 
@@ -202,6 +202,7 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
   Outputs:
   A Pandas dataframe with each 
   """
+    from time import time
     df = {
         "step": [],
         "nconfig": [],
@@ -255,13 +256,21 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
     #egth,_ = gth_estimator(pos, wf, configs, g, tau,h_ks, f_ks, ks, kcopy,phonon)
     #print(np.mean(eloc))
     rho, _ = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy,phonon)
-    eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
+    ke_coul = GetEnergy(wf,configs,pos,'total')
+    elocold = mixed_estimator(ke_coul, pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
 
-    eref = np.mean(eloc)
+    eref = np.mean(elocold)
     print(eref)
 
+    timers = dict(
+      drift_diffusion = 0.0,
+      mixed_estimator = 0.0,
+      gth_estimator = 0.0,
+      update_coherent = 0.0,
+      branch = 0.0,
+    )
     for istep in range(nstep):
-        elocold = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
+        tick = time()
         if elec == True:
             driftold = tau * wf.grad(pos)
 
@@ -273,26 +282,43 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
             imove = acc > np.random.random(nconfig)
             pos[imove,:, :] = posnew[imove,:, :]
             acc_ratio = np.sum(imove) / nconfig
+        tock = time()
+        timers['drift_diffusion'] += tock - tick
 
         #update coherent state amplitudes
+        tick = time()
         rho, f2p = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy,phonon)
+        tock = time()
+        timers['update_coherent'] += tock - tick
+
+        #compute observables
+        tick = time()
         ke_coul = GetEnergy(wf,configs,pos,'total') #syncs internal wf configs object + driver configs object
-        eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
-        egth,_ = gth_estimator(pos, wf, configs, g,tau, h_ks, f_ks, ks, kcopy,phonon)
+        eloc = mixed_estimator(ke_coul, pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
+        tock = time()
+        timers['mixed_estimator'] += tock - tick
+        tick = time()
+        egth,_ = gth_estimator(ke_coul, pos, wf, configs, g,tau, h_ks, f_ks, ks, kcopy,phonon)
+        tock = time()
+        timers['gth_estimator'] += tock - tick
         #syncs internal wf configs object + driver configs object
         f_ks = f2p
         n_ks = f_ks* np.conj(h_ks) #n_k = hw a*a; momentum distribution of equilibrium phonons -- want to plot this as a function of |k|
 
         oldwt = np.mean(weight)
         weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
+        elocold = eloc
         
         # Branch
+        tick = time()
         wtot = np.sum(weight)
         wavg = wtot / nconfig
         if elec == True:
             if istep % popstep == 0:
                 pos, weight = popcontrol(pos, weight, wavg, wtot)
                 wf.update(configs,pos)
+        tock = time()
+        timers['branch'] += tock - tick
 
         # Update the reference energy
         Delta = -1./tau* np.log(wavg/oldwt) #need to normalize <w_{n+1}>/<w_n>
@@ -338,6 +364,10 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
         df['n_ks'].append(np.mean(n_ks,axis=1)) #avg over all walkers
         df['ks'].append(kmag)
 
+    print('Timings:')
+    for key, val in timers.items():
+      line = '%16s %.4f' % (key, val)
+      print(line)
     plotamps(kcopy,n_ks, N)
     return pd.DataFrame(df)
 
@@ -528,5 +558,5 @@ if __name__ == "__main__":
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
     df = pd.concat(dfs)
-    #df.to_csv(csvname, index=False)
-    df.to_pickle(picklename)
+    df.to_csv(csvname, index=False)
+    #df.to_pickle(picklename)
