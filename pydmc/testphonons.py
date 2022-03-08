@@ -192,7 +192,7 @@ def InitPos(wf,opt='rand'):
     return pos
 
 from itertools import product
-def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=True,l=l,eta=eta_STO):
+def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=True,l=l,eta=eta_STO,gth=True):
     """
   Inputs:
   L: box length (units of a0)
@@ -298,7 +298,9 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
         tock = time()
         timers['mixed_estimator'] += tock - tick
         tick = time()
-        egth,_ = gth_estimator(ke_coul, pos, wf, configs, g,tau, h_ks, f_ks, ks, kcopy,phonon)
+        if gth:
+            egth,_ = gth_estimator(ke_coul, pos, wf, configs, g,tau, h_ks, f_ks, ks, kcopy,phonon)
+        else: egth = np.zeros(eloc.shape)
         tock = time()
         timers['gth_estimator'] += tock - tick
         #syncs internal wf configs object + driver configs object
@@ -479,6 +481,7 @@ if __name__ == "__main__":
     parser.add_argument('--tproj',type=int,default=128) # projection time = tau * nsteps
     parser.add_argument('--l',type=int,default=l) 
     parser.add_argument('--eta',type=np.float64,default=eta_STO) 
+    parser.add_argument('--gth',type=int,default=1) #on/off switch for growth estimator
     args = parser.parse_args()
 
     r_s = args.rs  # inter-electron spacing, controls density
@@ -486,6 +489,7 @@ if __name__ == "__main__":
     seed = args.seed
     elec_bool = args.elec > 0
     ph_bool = args.ph > 0
+    gth_bool = args.gth > 0
     N = args.Ncut
     tproj = args.tproj #projection time = tau * nsteps
 
@@ -502,11 +506,12 @@ if __name__ == "__main__":
     print(filename)
     print('elec',elec_bool)
     print('ph',ph_bool)
+    print('gth',gth_bool)
    
     LLP = -alpha/(2*l**2) #-alpha hw energy lowering for single polaron
     feyn = (-alpha -0.98*(alpha/10)**2 -0.6*(alpha/10)**3)/(2*l**2)
     print('N',N)
-    print('LLP',LLP)
+    print('LLP',2*LLP)
     print('Feyn',feyn)
     np.random.seed(seed)
     tic = time.perf_counter()
@@ -527,7 +532,8 @@ if __name__ == "__main__":
                 l=l,
                 eta=eta,
                 elec=elec_bool,
-                phonon=ph_bool
+                phonon=ph_bool,
+                gth=gth_bool,
             )
         )
     if elec_bool:
@@ -558,5 +564,5 @@ if __name__ == "__main__":
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
     df = pd.concat(dfs)
-    df.to_csv(csvname, index=False)
-    #df.to_pickle(picklename)
+    #df.to_csv(csvname, index=False)
+    df.to_pickle(picklename)

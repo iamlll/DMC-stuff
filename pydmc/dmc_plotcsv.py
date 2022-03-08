@@ -253,14 +253,22 @@ def PlotReblockedE_vs_kcut(df):
     l = 20
     alpha = (1-eta)*l
     fig,ax = plt.subplots(1,1,figsize=(6,4.5))
-    rs = df['r_s'].values
+    rs = df['r_s'].values[0]
+    Es = df['eavg'].values
+    #append N=150 vals, since zsh kills the script when I try to process everything together
+    #,n_equil,alpha,r_s,tau,Ncut,eavg,err,egth,err_gth
+    #0,16,16.0,100,1.25,150,-0.10111245043273956,0.0017508233637192146,0.0,0.0
+    Es = np.append(Es,-0.10111245043273956)
+    E_err = df['err'].values
+    E_err = np.append(E_err,0.0017508233637192146)
     Ncuts = df['Ncut'].values
-    Ls = (4*np.pi*2/3)**(1/3) * rs #sys size/length measured in a0; multiply by 2 since 2 = # of electrons
+    Ncuts = np.append(Ncuts,150)
+    Ls = np.full(len(Ncuts),(4*np.pi*2/3)**(1/3) * rs) #sys size/length measured in a0; multiply by 2 since 2 = # of electrons
     idxs = np.argsort(Ls)
     Ls = Ls[idxs]
     kcuts = 2*np.pi*Ncuts[idxs]/Ls
-    Es = df['eavg'].values[idxs]
-    E_err = df['err'].values[idxs]
+    Es = Es[idxs]
+    E_err = E_err[idxs]
     ax.plot(kcuts,Es,'-o',label='data')
     ax.set_ylabel('$E_{avg}$')
     ax.set_xlabel('$k_{cut}=2\pi N/L$')
@@ -273,10 +281,23 @@ def PlotReblockedE_vs_kcut(df):
     pred_llp = -alpha/(2*l**2)*2
     ax.plot(kcuts,pred,'ko-',label='semiclassical')
     ax.axhline(pred_llp,c='red',label='-2alpha hw')
-    ax.set_title('$\\alpha= %d$, $r_s = %d$' %(alpha,rs[0]))
+    ax.set_title('$\\alpha= %d$, $r_s = %d$' %(alpha,rs))
     ax.legend() 
     plt.tight_layout()
     plt.show()      
+
+def NcutScalingTiming():
+    '''Look at how timing for updating coherent states + mixed estimator scales with value of cutoff momentum Ncut (kcut = 2pi Ncut/L)
+    '''
+    df = pd.read_csv('Ncut_timing.csv')
+    fkupdates = df['update_coherent'].values
+    Ncuts = df['Ncut'].values
+    fig,ax = plt.subplots(1,1,figsize=(6,4.5))
+    ax.plot(Ncuts,fkupdates)
+    #ax.plot(np.log(Ncuts),np.log(fkupdates))
+    ax.set_xlabel('$ N_{cut}$')
+    ax.set_ylabel('$ \Delta t_{phonon}$')
+    plt.show()
 
 def PlotVars(df, xvar=['step'], yvars=['elocal']):
     '''
@@ -494,10 +515,12 @@ if __name__ == "__main__":
     #Phonon_Mom_Density(df)
     #RandTrials(sys.argv[1:])
 
-    df = pd.read_csv(sys.argv[1])
-    PlotReblockedE_vs_kcut(df)
+    #df = pd.read_csv(sys.argv[1])
+    #PlotReblockedE_vs_kcut(df)
     #PlotReblockedE_vs_L(df)
  
+    NcutScalingTiming()
+
     #filenames = sys.argv[1:]
     #Test_DOS_phonon_amp(filenames,scaled=False)
     #df = pd.read_csv(sys.argv[1])
