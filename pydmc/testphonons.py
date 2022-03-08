@@ -1,5 +1,5 @@
 '''
-Testing Ewald + jellium routines considering only KE + Coulomb energies (no phonons)
+Testing electron + phonon DMC driver
 '''
 
 #!/usr/bin/env python
@@ -26,14 +26,47 @@ U_STO = elec**2/(epsinf*hbar)*np.sqrt(2*m/(hbar*w))*1E-9 #convert statC in e^2 t
 Ry = m*elec**4*(1E-9)**2/(2*epsinf**2 *hbar**2)*1/1.602E-19 #Rydberg energy unit in media, eV
 a0 = hbar**2*epsinf/(m*elec**2 *1E-9); #Bohr radius in media
 l = np.sqrt(hbar/(2*m*w))/ a0 #phonon length in units of the Bohr radius  
-
 #####################################
 '''phonon energy calculations'''
 
-def update_f_ks(pos, wf,g, tau, h_ks,f_ks, ks, kcopy):
+def gth_estimator(pos, wf,configs,g, tau, h_ks,f_ks, ks, kcopy,phonon=True):
+    """ calculate kinetic + Coulomb + electron-phonon and phonon energies in growth estimator formulation
+    Input:
+      pos: electron positions (nconf,nelec,ndim) 
+      wf: wavefunction
+      ham: hamiltonian
+      tau: timestep
+      ks: allowed momentum values
+      kcopy: array of k-vector magnitudes, (nconfig) x (# ks) matrix
+    Return:
+      ke: kinetic energy
+      pot: Coulomb energy - a constant for fixed electrons
+      ph: Phonon + electron-phonon (local) energies
+    """
+    ke_coul = GetEnergy(wf,configs,pos,'total')
+    if phonon == True:
+        #swap 1st and 3rd axes in pos matrix so ks dot r1 = (Nx3) dot (3 x nconf) = N x nconf matrix 
+        swappos = np.swapaxes(pos,0,2)
+
+        #find elec density matrix
+        dprod1 = np.matmul(ks,swappos[:,0,:]) #np array for each k value; k dot r1
+        dprod2 = np.matmul(ks,swappos[:,1,:]) #k dot r2 
+        rho = np.exp(1j*dprod1) + np.exp(1j*dprod2) #electron density eikr1 + eikr2
+        #Update f_k from H_ph and H_eph; [tau] = 1/ha
+        fp = f_ks* np.exp(-tau/(2*l**2))
+        f2p = fp - 1j*tau* g/kcopy * np.conj(rho) #f'' = f' - it*g/k* (rho*)
+    
+        #Update weights from H_ph and H_eph, and calculate local energy
+        ph = -1./tau* (np.sum( tau*1j* g * fp/kcopy*rho,axis=0) + np.sum( np.conj(h_ks)*(f2p-f_ks),axis=0) ) #sum over all k-values; coherent state weight contributions are normalized
+    else:
+        f2p = np.zeros(f_ks.shape)
+        ph = np.zeros(ke_coul.shape)
+    return ke_coul+ph, f2p
+
+def update_f_ks(pos, wf,g, tau, h_ks,f_ks, ks, kcopy,phonon=True):
     """ calculate electron density and update phonon coherence amplitudes.
     Input:
-      pos: electron positions (nelec,ndim,nconf) 
+      pos: electron positions (nconf,nelec,ndim) 
       wf: wavefunction
       g: density of states of electron-phonon interaction
       tau: timestep
@@ -43,19 +76,22 @@ def update_f_ks(pos, wf,g, tau, h_ks,f_ks, ks, kcopy):
       rho: electron density
       newf_ks: updated coherence state amplitudes
     """
-    #swap 1st and 3rd axes in pos matrix so ks dot r1 = (Nx3) dot (3 x nconf) = N x nconf matrix 
-    swappos = np.swapaxes(pos,0,2) #CHECK that this does what I think it does
+    if phonon == True:
+        #swap 1st and 3rd axes in pos matrix so ks dot r1 = (Nx3) dot (3 x nconf) = N x nconf matrix 
+        swappos = np.swapaxes(pos,0,2)
 
-    #find elec density matrix
-    dprod1 = np.matmul(ks,swappos[:,0,:]) #np array for each k value; k dot r1
-    dprod2 = np.matmul(ks,swappos[:,1,:]) #k dot r2 
-    rho = np.exp(1j*dprod1) + np.exp(1j*dprod2) #electron density eikr1 + eikr2
-    
-    #Update f_k from H_ph and H_eph; [tau] = 1/ha
-    newf_ks = f_ks* np.exp(-tau/(2*l**2)) - 1j*tau* g/kcopy * np.conj(rho) #f'' = f' - it*g/k* (rho*)
+        #find elec density matrix
+        dprod1 = np.matmul(ks,swappos[:,0,:]) #np array for each k value; k dot r1
+        dprod2 = np.matmul(ks,swappos[:,1,:]) #k dot r2 
+        rho = np.exp(1j*dprod1) + np.exp(1j*dprod2) #electron density eikr1 + eikr2
+        #Update f_k from H_ph and H_eph; [tau] = 1/ha
+        newf_ks = f_ks* np.exp(-tau/(2*l**2)) - 1j*tau* g/kcopy * np.conj(rho) #f'' = f' - it*g/k* (rho*)
+    else:
+        rho = np.zeros((len(ks),pos.shape[0])) 
+        newf_ks = np.zeros(f_ks.shape)
     return rho, newf_ks
 
-def mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kmag):
+def mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kmag,phonon=True):
     '''
     Calculate energy (in ha) using the mixed estimator form E_0 = <psi_T| H |phi>, psi_T & phi are coherent states
     Also syncs DMC driver configs with internal wf electron configurations (GetEnergy)
@@ -70,9 +106,13 @@ def mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kmag):
     '''
     ke_coul = GetEnergy(wf,configs,pos,'total')
     #Find electron phonon energy
-    H_eph = 1j* g*np.sum( (-f_ks * rho + np.conj(h_ks) *np.conj(rho))/kmag , axis=0) #sum over all k values; f/kmag = (# ks) x nconfigs matrix. See eqn 
-    #find H_ph
-    H_ph = 1/(2*l**2) * np.sum(f_ks* np.conj(h_ks),axis=0)
+    if phonon == True:
+        H_eph = 1j* g*np.sum( (-f_ks * rho + np.conj(h_ks) *np.conj(rho))/kmag , axis=0) #sum over all k values; f/kmag = (# ks) x nconfigs matrix. See eqn 
+        #find H_ph
+        H_ph = 1/(2*l**2) * np.sum(f_ks* np.conj(h_ks),axis=0)
+    else:
+        H_eph = np.zeros(ke_coul.shape)
+        H_ph = np.zeros(ke_coul.shape)
     return ke_coul + H_eph + H_ph
 
 def init_f_k(ks, kmag, g, nconfig):
@@ -85,7 +125,7 @@ def init_f_k(ks, kmag, g, nconfig):
     yopt = 1.39
     sopt = 1.05E-9/a0 #in units of the Bohr radius
     d = yopt*sopt #assume pointing in z direction
-    f_ks = -2j*g*l**2/kmag* np.exp(-kmag**2 * sopt**2/4) * (np.cos(ks[:,2] * d/2) - np.exp(-yopt**2/2) )/(1- np.exp(-yopt**2/2))
+    f_ks = -4j*g*l**2/kmag* np.exp(-kmag**2 * sopt**2/4) * (np.cos(ks[:,2] * d/2) - np.exp(-yopt**2/2) )/(1- np.exp(-yopt**2/2))
     f_kcopy = np.array([[ f_ks[i] for j in range(nconfig)] for i in range(len(ks))]) #make f_ks array size (# ks) x (# configurations)
     return f_kcopy
 
@@ -122,8 +162,37 @@ def popcontrol(pos, weight, wavg, wtot):
     weight.fill(wavg)
     return posnew, weight
 
+def plotamps(kcopy, n_ks, N):
+    # f_ks: (# ks) x (nconfig) array of coherent state amplitudes. Want to make histogram of f_ks vs |k| for final config of f_ks.
+    fig,ax = plt.subplots(2,1)
+    ax[0].plot(kcopy.flatten(), n_ks.real.flatten(),'.')
+    ax[0].set_xlabel('$|\\vec{k}|$')
+    ax[0].set_ylabel('Re($n_k$)')
+    ax[1].plot(kcopy.flatten(), n_ks.imag.flatten(),'.')
+    ax[1].set_xlabel('$|\\vec{k}|$')
+    ax[1].set_ylabel('Im($n_k$)')
+    ax[0].set_ylim(bottom=0)
+    ax[1].set_ylim(bottom=0)
+    fig.suptitle('$N = $' + str(N))
+
+    plt.tight_layout()
+    plt.show()
+    #want to find the relationship between k_cut and L 
+
+def InitPos(wf,opt='rand'):
+    if opt == 'bcc':
+        #initialize one electron at center of box and the other at the corner
+        pos= np.zeros((wf.nconfig, wf.nelec, wf.ndim))
+        pos0 = np.full((wf.nconfig, wf.ndim),wf.L/2)
+        pos1 = np.full((wf.nconfig, wf.ndim),wf.L)
+        pos[:,0,:] = pos0
+        pos[:,1,:] = pos1
+    else:    
+        pos= wf.L* np.random.rand(wf.nconfig, wf.nelec, wf.ndim)
+    return pos
+
 from itertools import product
-def simple_dmc(wf, g, tau, pos, popstep=1, nstep=1000, N=5, L=10):
+def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=True,l=l,eta=eta_STO):
     """
   Inputs:
   L: box length (units of a0)
@@ -137,15 +206,31 @@ def simple_dmc(wf, g, tau, pos, popstep=1, nstep=1000, N=5, L=10):
         "step": [],
         "nconfig": [],
         "r_s": [],
-        "ke": [],
+        "N_cut": [], #spherical momentum cutoff radius determining max k-vector magnitude
+        "l":[], #phonon length scale
+        "L":[], #system size
+        "eta":[],
+        "g": [],
+        "ke_coul": [],
         "elocal": [],
+        "egth": [],
         "weight": [],
         "weightvar": [],
         "elocalvar": [],
         "eref": [],
         "tau": [],
         "popstep": [],
+        "f_ks": [], #avg phonon amplitudes
+        "h_ks":[], #initial trial wf guess for phonon amps
+        "n_ks": [], #avg momentum density hw a*a
+        "ks": [],
     }
+
+    alpha = (1-eta)*l
+    print('alpha',alpha)
+    L = wf.L
+    g = 1./l**2*np.sqrt(np.pi*alpha*l/L**3) #DOS, all lengths in units of Bohr radii a0
+
     nconfig = pos.shape[0]
     weight = np.ones(nconfig)
     #setup wave function
@@ -164,33 +249,39 @@ def simple_dmc(wf, g, tau, pos, popstep=1, nstep=1000, N=5, L=10):
 
     #initialize f_ks
     f_ks = init_f_k(ks, kmag, g, nconfig)
+    if phonon == False: f_ks.fill(0.)
     h_ks = f_ks #this describes our trial wave fxn coherent state amplitudes
-
-    rho, _ = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy)
-    eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy)
+    #print(h_ks)
+    #egth,_ = gth_estimator(pos, wf, configs, g, tau,h_ks, f_ks, ks, kcopy,phonon)
+    #print(np.mean(eloc))
+    rho, _ = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy,phonon)
+    eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
 
     eref = np.mean(eloc)
     print(eref)
 
     for istep in range(nstep):
-        driftold = tau * wf.grad(pos)
-        elocold = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy)
+        elocold = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
+        if elec == True:
+            driftold = tau * wf.grad(pos)
 
-        # Drift+diffusion 
-        #with importance sampling
-        posnew = pos + np.sqrt(tau) * np.random.randn(*pos.shape) + driftold
-        driftnew = tau * wf.grad(posnew)
-        acc = acceptance(pos, posnew, driftold, driftnew, tau, wf)
-        imove = acc > np.random.random(nconfig)
-        pos[imove,:, :] = posnew[imove,:, :]
-        acc_ratio = np.sum(imove) / nconfig
+            # Drift+diffusion 
+            #with importance sampling
+            posnew = pos + np.sqrt(tau) * np.random.randn(*pos.shape) + driftold
+            driftnew = tau * wf.grad(posnew)
+            acc = acceptance(pos, posnew, driftold, driftnew, tau, wf)
+            imove = acc > np.random.random(nconfig)
+            pos[imove,:, :] = posnew[imove,:, :]
+            acc_ratio = np.sum(imove) / nconfig
 
         #update coherent state amplitudes
-        rho, f2p = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy)
-        ke = GetEnergy(wf,configs,pos,'ke') #syncs internal wf configs object + driver configs object
-        eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy)
+        rho, f2p = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy,phonon)
+        ke_coul = GetEnergy(wf,configs,pos,'total') #syncs internal wf configs object + driver configs object
+        eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
+        egth,_ = gth_estimator(pos, wf, configs, g,tau, h_ks, f_ks, ks, kcopy,phonon)
         #syncs internal wf configs object + driver configs object
         f_ks = f2p
+        n_ks = f_ks* np.conj(h_ks) #n_k = hw a*a; momentum distribution of equilibrium phonons -- want to plot this as a function of |k|
 
         oldwt = np.mean(weight)
         weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
@@ -198,10 +289,10 @@ def simple_dmc(wf, g, tau, pos, popstep=1, nstep=1000, N=5, L=10):
         # Branch
         wtot = np.sum(weight)
         wavg = wtot / nconfig
-        
-        if istep % popstep == 0:
-            pos, weight = popcontrol(pos, weight, wavg, wtot)
-            wf.update(configs,pos)
+        if elec == True:
+            if istep % popstep == 0:
+                pos, weight = popcontrol(pos, weight, wavg, wtot)
+                wf.update(configs,pos)
 
         # Update the reference energy
         Delta = -1./tau* np.log(wavg/oldwt) #need to normalize <w_{n+1}>/<w_n>
@@ -213,27 +304,41 @@ def simple_dmc(wf, g, tau, pos, popstep=1, nstep=1000, N=5, L=10):
                 istep,
                 "avg wt",
                 wavg.real,
+                "ke_coul",
+                np.mean(ke_coul),
                 "average energy",
                 np.mean(eloc * weight / wavg),
                 "eref",
                 eref,
                 "sig_gth",
                 np.std(eloc),
-                "f_k",
-                f_ks[2,0], #coherent state amp for 1st walker of 3rd momentum value
+                "f_k avg",
+                np.mean(f_ks[2,:]), #avg coh state amp for 3rd mom val
             )
 
+        df['g'].append(g)
+        df['l'].append(l)
+        df['eta'].append(eta)
+        df['N_cut'].append(N)
         df["step"].append(istep)
-        df["ke"].append(np.mean(ke))
+        df["ke_coul"].append(np.mean(ke_coul))
         df["elocal"].append(np.mean(eloc))
+        df["egth"].append(np.mean(egth))
         df["weight"].append(np.mean(weight))
         df["elocalvar"].append(np.std(eloc))
         df["weightvar"].append(np.std(weight))
         df["eref"].append(eref)
         df["tau"].append(tau)
         df["r_s"].append(r_s)
+        df["L"].append(L)
         df["nconfig"].append(nconfig)
         df['popstep'].append(popstep)
+        df['h_ks'].append(np.mean(h_ks,axis=1))
+        df['f_ks'].append(np.mean(f_ks,axis=1))
+        df['n_ks'].append(np.mean(n_ks,axis=1)) #avg over all walkers
+        df['ks'].append(kmag)
+
+    plotamps(kcopy,n_ks, N)
     return pd.DataFrame(df)
 
 def simple_vmc(wf, g, tau, pos, nstep=1000, N=10, L=10):
@@ -303,9 +408,9 @@ def simple_vmc(wf, g, tau, pos, nstep=1000, N=10, L=10):
         wfold[acc_idx] = wfnew[acc_idx]
         acceptance = np.mean(acc_idx) #avg acceptance rate at each step (NOT total, would have to additionally divide by nstep)
         #update coherent state amplitudes
-        rho, f2p = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy)
+        rho, f2p = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy, phonons=False)
         ke = GetEnergy(wf,configs,pos,'ke') #syncs internal wf configs object + driver configs object
-        eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy)
+        eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonons=False)
         #syncs internal wf configs object + driver configs object
         f_ks = f2p
 
@@ -333,41 +438,73 @@ def simple_vmc(wf, g, tau, pos, nstep=1000, N=10, L=10):
 if __name__ == "__main__":
     from updatedjastrow import UpdatedJastrow
     import time
+    from argparse import ArgumentParser
+    parser = ArgumentParser()
+    parser.add_argument('--rs', type=int, default=4)
+    parser.add_argument('--nconf', type=int, default=512)
+    parser.add_argument('--seed',type=int,default=0) #random seed
+    parser.add_argument('--elec', type=int, default=1) #on/off switch for electrons
+    parser.add_argument('--ph', type=int, default=1) #on/off switch for phonons
+    parser.add_argument('--Ncut',type=int,default=10) # defines spherical momentum cutoff k_cut = 2pi*N/L
+    parser.add_argument('--tproj',type=int,default=128) # projection time = tau * nsteps
+    parser.add_argument('--l',type=int,default=l) 
+    parser.add_argument('--eta',type=np.float64,default=eta_STO) 
+    args = parser.parse_args()
 
-    tproj = 128 #projection time = tau * nsteps
+    r_s = args.rs  # inter-electron spacing, controls density
+    nconfig = args.nconf #default is 5000
+    seed = args.seed
+    elec_bool = args.elec > 0
+    ph_bool = args.ph > 0
+    N = args.Ncut
+    tproj = args.tproj #projection time = tau * nsteps
 
-    nconfig = 512 #default is 5000
     dfs = []
-    r_s = int(sys.argv[1]) #inter-electron spacing, controls density
-    L = (4*np.pi*2/3)**(1/3) * r_s #sys size/length measured in a0; multiply by 2 since 2 = # of electrons
-    print("L",L)
-    N = 10 #number allowed momenta
     wf = UpdatedJastrow(r_s,nconfig=nconfig)
-    g = 1./l**2*np.sqrt(np.pi*alpha*l/wf.L**3) #DOS, all lengths in units of Bohr radii a0
-    seed = int(sys.argv[2])
-    csvname = "phonons_rs_" + str(r_s) + "_popsize_" + str(nconfig) + "_seed_" + str(seed) + ".csv"
 
+    # Modify the Frohlich coupling constant alpha = (1-eta)*\tilde l
+    l = args.l
+    eta = args.eta
+    #l = 20
+    #eta = 0.2
+    filename = "phonons_rs_{0}_popsize_{1}_seed_{2}_N_{3}_eta_{4:d}_U_{5:d}".format(r_s, nconfig, seed, N,int(eta),int(l))
+    print(filename)
+    print('elec',elec_bool)
+    print('ph',ph_bool)
+   
+    LLP = -alpha/(2*l**2) #-alpha hw energy lowering for single polaron
+    feyn = (-alpha -0.98*(alpha/10)**2 -0.6*(alpha/10)**3)/(2*l**2)
+    print('N',N)
+    print('LLP',LLP)
+    print('Feyn',feyn)
     np.random.seed(seed)
     tic = time.perf_counter()
-     
+    initpos = InitPos(wf,'bcc') 
     #for tau in [r_s/20, r_s/40, r_s/80]:
-    for tau in [r_s/20]:
+    for tau in [r_s/80]:
         nstep = int(tproj/tau)
         print(nstep)
         
         dfs.append(
             simple_dmc(
                 wf,
-                g,
-                pos= L* np.random.rand(nconfig, 2, 3), 
-                L=L,
+                pos= initpos,
                 tau=tau,
                 popstep=10,
                 N=N,
-                nstep=nstep #orig: 10000
+                nstep=nstep, #orig: 10000
+                l=l,
+                eta=eta,
+                elec=elec_bool,
+                phonon=ph_bool
             )
         )
-    csvname = 'DMC_with_' + csvname
+    if elec_bool:
+        csvname = 'DMC_bcc_with_' + filename + ".csv"
+        picklename = 'DMC_bcc_with_' + filename + ".pkl"
+    else:
+        csvname = 'DMC_no_elec_with_' + filename + ".csv"
+        picklename = 'DMC_no_elec_with_' + filename + ".pkl"
        
     ''' 
     for tau in [r_s/20]:
@@ -390,5 +527,5 @@ if __name__ == "__main__":
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
     df = pd.concat(dfs)
-    df.to_csv(csvname, index=False)
-     
+    #df.to_csv(csvname, index=False)
+    df.to_pickle(picklename)

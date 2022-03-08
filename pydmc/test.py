@@ -75,4 +75,6 @@ print(ks.shape)
 nconfig=12
 kmag = np.sum(ks**2,axis=1)**0.5 #find k magnitudes
 kcopy = np.array([[ kmag[i] for j in range(nconfig)] for i in range(len(kmag))])
-kcopy2 = np.array([[ kmag[j] for j in range(len(kmag))] for i in range(nconfig)])
+print(kmag)
+print(kcopy.shape)
+print(np.mean(kcopy,axis=1))
