@@ -256,9 +256,9 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
     #egth,_ = gth_estimator(pos, wf, configs, g, tau,h_ks, f_ks, ks, kcopy,phonon)
     #print(np.mean(eloc))
     rho, _ = update_f_ks(pos, wf, g, tau, h_ks, f_ks, ks, kcopy,phonon)
-    eloc = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
+    elocold = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
 
-    eref = np.mean(eloc)
+    eref = np.mean(elocold)
     print(eref)
 
     timers = dict(
@@ -269,10 +269,6 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
       branch = 0.0,
     )
     for istep in range(nstep):
-        tick = time()
-        elocold = mixed_estimator(pos, wf, configs, rho, g, h_ks, f_ks, kcopy,phonon)
-        tock = time()
-        timers['mixed_estimator'] += tock - tick
         tick = time()
         if elec == True:
             driftold = tau * wf.grad(pos)
@@ -310,6 +306,7 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
 
         oldwt = np.mean(weight)
         weight = weight* np.exp(-0.5* tau * (elocold + eloc - 2*eref))
+        elocold = eloc
         
         # Branch
         tick = time()
@@ -559,5 +556,5 @@ if __name__ == "__main__":
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
     df = pd.concat(dfs)
-    #df.to_csv(csvname, index=False)
-    df.to_pickle(picklename)
+    df.to_csv(csvname, index=False)
+    #df.to_pickle(picklename)
