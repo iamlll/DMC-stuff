@@ -461,6 +461,7 @@ if __name__ == "__main__":
 
     dfs = []
     wf = UpdatedJastrow(r_s,nconfig=nconfig)
+    print(wf.L)
 
     # Modify the Frohlich coupling constant alpha = (1-eta)*\tilde l
     l = args.l
