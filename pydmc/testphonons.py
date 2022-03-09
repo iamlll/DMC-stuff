@@ -9,6 +9,7 @@ sys.path.append("../")
 from metropolis import metropolis_sample
 import pandas as pd
 import matplotlib.pyplot as plt
+from qharv.reel import config_h5
 from updatedjastrow import UpdatedJastrow, GetEnergy
 
 #define various constants
@@ -192,7 +193,7 @@ def InitPos(wf,opt='rand'):
     return pos
 
 from itertools import product
-def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=True,l=l,eta=eta_STO,gth=True):
+def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=True,l=l,eta=eta_STO,gth=True,h5name="dmc.h5"):
     """
   Inputs:
   L: box length (units of a0)
@@ -221,11 +222,13 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
         "eref": [],
         "tau": [],
         "popstep": [],
-        "f_ks": [], #avg phonon amplitudes
-        "h_ks":[], #initial trial wf guess for phonon amps
-        "n_ks": [], #avg momentum density hw a*a
-        "ks": [],
+        #"f_ks": [], #avg phonon amplitudes
+        #"h_ks":[], #initial trial wf guess for phonon amps
+        #"n_ks": [], #avg momentum density hw a*a
+        #"ks": [],
     }
+    # use HDF file for large data output
+    h5file = config_h5.open_write(h5name)
 
     alpha = (1-eta)*l
     print('alpha',alpha)
@@ -361,11 +364,18 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
         df["L"].append(L)
         df["nconfig"].append(nconfig)
         df['popstep'].append(popstep)
-        df['h_ks'].append(np.mean(h_ks,axis=1))
-        df['f_ks'].append(np.mean(f_ks,axis=1))
-        df['n_ks'].append(np.mean(n_ks,axis=1)) #avg over all walkers
-        df['ks'].append(kmag)
-
+        #df['h_ks'].append(np.mean(h_ks,axis=1))
+        #df['f_ks'].append(np.mean(f_ks,axis=1))
+        #df['n_ks'].append(np.mean(n_ks,axis=1)) #avg over all walkers
+        #df['ks'].append(kmag)
+        grp = h5file.create_group(h5file.root, 's%08d' % istep)
+        big_data = {
+          'n_ks': n_ks.mean(axis=1),
+          'f_ks': f_ks.mean(axis=1),
+        }
+        config_h5.save_dict(big_data, h5file, slab=grp)
+    config_h5.save_dict({'ks': kmag, 'h_ks': h_ks.mean(axis=1)}, h5file)
+    h5file.close()
     print('Timings:')
     for key, val in timers.items():
       line = '%16s %.4f' % (key, val)
@@ -507,6 +517,7 @@ if __name__ == "__main__":
         filename = 'DMC_bcc_with_' + filename
     else:
         filename = 'DMC_no_elec_with_' + filename
+    h5name = filename + ".h5"
     print(filename)
     print('elec',elec_bool)
     print('ph',ph_bool)
@@ -538,6 +549,7 @@ if __name__ == "__main__":
                 elec=elec_bool,
                 phonon=ph_bool,
                 gth=gth_bool,
+                h5name = h5name,
             )
         )
     csvname = filename + ".csv"
@@ -564,5 +576,5 @@ if __name__ == "__main__":
     print(f"time taken: {toc-tic:0.4f} s, {(toc-tic)/60:0.3f} min")
 
     df = pd.concat(dfs)
-    #df.to_csv(csvname, index=False)
-    df.to_pickle(picklename)
+    df.to_csv(csvname, index=False)
+    #df.to_pickle(picklename)
