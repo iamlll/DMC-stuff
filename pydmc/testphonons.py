@@ -370,7 +370,7 @@ def simple_dmc(wf, tau, pos, popstep=1, nstep=1000, N=5, L=10,elec=True,phonon=T
     for key, val in timers.items():
       line = '%16s %.4f' % (key, val)
       print(line)
-    plotamps(kcopy,n_ks, N)
+    #plotamps(kcopy,n_ks, N)
     return pd.DataFrame(df)
 
 def simple_vmc(wf, g, tau, pos, nstep=1000, N=10, L=10):
@@ -503,6 +503,10 @@ if __name__ == "__main__":
     #l = 20
     #eta = 0.2
     filename = "phonons_rs_{0}_popsize_{1}_seed_{2}_N_{3}_eta_{4:d}_U_{5:d}".format(r_s, nconfig, seed, N,int(eta),int(l))
+    if elec_bool:
+        filename = 'DMC_bcc_with_' + filename
+    else:
+        filename = 'DMC_no_elec_with_' + filename
     print(filename)
     print('elec',elec_bool)
     print('ph',ph_bool)
@@ -536,12 +540,8 @@ if __name__ == "__main__":
                 gth=gth_bool,
             )
         )
-    if elec_bool:
-        csvname = 'DMC_bcc_with_' + filename + ".csv"
-        picklename = 'DMC_bcc_with_' + filename + ".pkl"
-    else:
-        csvname = 'DMC_no_elec_with_' + filename + ".csv"
-        picklename = 'DMC_no_elec_with_' + filename + ".pkl"
+    csvname = filename + ".csv"
+    picklename = filename + ".pkl"
        
     ''' 
     for tau in [r_s/20]:
